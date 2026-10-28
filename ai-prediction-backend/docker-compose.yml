@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:17.5
+    environment:
+      POSTGRES_DB: academic_sentinel
+      POSTGRES_USER: academic_sentinel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your shell}
+    ports:
+      - "5432:5432"
+    volumes:
+      - academic-sentinel-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U academic_sentinel -d academic_sentinel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  academic-sentinel-pgdata:

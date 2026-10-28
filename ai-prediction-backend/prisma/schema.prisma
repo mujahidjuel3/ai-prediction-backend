@@ -1,0 +1,396 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+}
+enum EnrollmentStatus {
+  ENROLLED
+  WITHDRAWN
+  COMPLETED
+}
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+enum ImportStatus {
+  PREVIEWED
+  COMMITTED
+  FAILED
+}
+enum EmailDeliveryStatus {
+  PENDING
+  SENDING
+  SMTP_ACCEPTED
+  FAILED
+  SUPPRESSED_PREFERENCE
+  SKIPPED_DISABLED
+}
+
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  email String @unique @db.VarChar(254)
+  passwordHash String @db.VarChar(255)
+  name String @db.VarChar(160)
+  role Role
+  status AccountStatus @default(ACTIVE)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  sessions AuthSession[]
+  student Student?
+  teacher Teacher?
+  notifications Notification[]
+  preference NotificationPreference?
+  imports ImportJob[]
+  auditEvents AuditLog[] @relation("AuditActor")
+  reviewedPredictions PredictionReview[]
+  resolvedAlerts RiskAlert[] @relation("AlertResolver")
+  @@index([role, status])
+}
+
+model AuthSession {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  refreshTokenHash String @unique @db.VarChar(128)
+  expiresAt DateTime @db.Timestamptz(6)
+  revokedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  @@index([userId, expiresAt])
+}
+
+model Student {
+  id String @id @default(uuid()) @db.Uuid
+  userId String? @unique @db.Uuid
+  studentNumber String @unique @db.VarChar(64)
+  name String @db.VarChar(160)
+  email String? @db.VarChar(254)
+  departmentId String @db.Uuid
+  enrollmentYear Int
+  status AccountStatus @default(ACTIVE)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+  attendance AttendanceRecord[]
+  scores AssessmentScore[]
+  summaries AcademicSummary[]
+  predictions Prediction[]
+  alerts RiskAlert[]
+  @@index([departmentId, status])
+}
+
+model Teacher {
+  id String @id @default(uuid()) @db.Uuid
+  userId String? @unique @db.Uuid
+  employeeNumber String @unique @db.VarChar(64)
+  name String @db.VarChar(160)
+  email String? @db.VarChar(254)
+  departmentId String @db.Uuid
+  status AccountStatus @default(ACTIVE)
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  headedDepartments Department[] @relation("DepartmentHead")
+  offerings CourseOffering[]
+  attendanceEntries AttendanceRecord[] @relation("AttendanceRecorder")
+  assessments Assessment[] @relation("AssessmentCreator")
+  scores AssessmentScore[] @relation("ScoreGrader")
+  @@index([departmentId, status])
+}
+
+model Department {
+  id String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(16)
+  name String @unique @db.VarChar(120)
+  headTeacherId String? @db.Uuid
+  students Student[]
+  teachers Teacher[]
+  courses Course[]
+  head Teacher? @relation("DepartmentHead", fields: [headTeacherId], references: [id], onDelete: SetNull)
+}
+
+model AcademicTerm {
+  id String @id @default(uuid()) @db.Uuid
+  code String @unique @db.VarChar(40)
+  label String @db.VarChar(100)
+  academicYear String @db.VarChar(20)
+  startsAt DateTime @db.Date
+  endsAt DateTime @db.Date
+  active Boolean @default(false)
+  offerings CourseOffering[]
+  summaries AcademicSummary[]
+  predictions Prediction[]
+  alerts RiskAlert[]
+  @@index([academicYear, startsAt])
+}
+
+model Course {
+  id String @id @default(uuid()) @db.Uuid
+  code String @db.VarChar(32)
+  name String @db.VarChar(160)
+  departmentId String @db.Uuid
+  credits Decimal @db.Decimal(5, 2)
+  active Boolean @default(true)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  offerings CourseOffering[]
+  @@unique([departmentId, code])
+  @@index([departmentId, active])
+}
+
+model CourseOffering {
+  id String @id @default(uuid()) @db.Uuid
+  courseId String @db.Uuid
+  termId String @db.Uuid
+  teacherId String? @db.Uuid
+  section String @default("A") @db.VarChar(32)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  teacher Teacher? @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  enrollments Enrollment[]
+  attendance AttendanceRecord[]
+  assessments Assessment[]
+  @@unique([courseId, termId, section])
+  @@index([teacherId, termId])
+}
+
+model Enrollment {
+  id String @id @default(uuid()) @db.Uuid
+  studentId String @db.Uuid
+  offeringId String @db.Uuid
+  status EnrollmentStatus @default(ENROLLED)
+  enrolledAt DateTime @default(now()) @db.Timestamptz(6)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  offering CourseOffering @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+  @@unique([studentId, offeringId])
+  @@index([offeringId, status])
+}
+
+model AttendanceRecord {
+  id String @id @default(uuid()) @db.Uuid
+  studentId String @db.Uuid
+  offeringId String @db.Uuid
+  sessionDate DateTime @db.Date
+  status AttendanceStatus
+  recordedById String? @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  offering CourseOffering @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+  recordedBy Teacher? @relation("AttendanceRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+  @@unique([studentId, offeringId, sessionDate])
+  @@index([offeringId, sessionDate])
+}
+
+model Assessment {
+  id String @id @default(uuid()) @db.Uuid
+  offeringId String @db.Uuid
+  name String @db.VarChar(120)
+  kind String @db.VarChar(40)
+  maxScore Decimal @db.Decimal(8, 2)
+  weight Decimal? @db.Decimal(6, 3)
+  dueAt DateTime? @db.Timestamptz(6)
+  createdById String? @db.Uuid
+  offering CourseOffering @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+  createdBy Teacher? @relation("AssessmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  scores AssessmentScore[]
+  @@unique([offeringId, name])
+  @@index([offeringId, dueAt])
+}
+
+model AssessmentScore {
+  id String @id @default(uuid()) @db.Uuid
+  assessmentId String @db.Uuid
+  studentId String @db.Uuid
+  score Decimal? @db.Decimal(8, 2)
+  gradedById String? @db.Uuid
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  gradedBy Teacher? @relation("ScoreGrader", fields: [gradedById], references: [id], onDelete: SetNull)
+  @@unique([assessmentId, studentId])
+  @@index([studentId, updatedAt])
+}
+
+model AcademicSummary {
+  id String @id @default(uuid()) @db.Uuid
+  studentId String @db.Uuid
+  termId String @db.Uuid
+  gpa Decimal? @db.Decimal(4, 2)
+  attendancePercent Decimal? @db.Decimal(5, 2)
+  assessmentAverage Decimal? @db.Decimal(6, 2)
+  calculatedAt DateTime @default(now()) @db.Timestamptz(6)
+  calculationVersion String @db.VarChar(40)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  @@unique([studentId, termId, calculationVersion])
+  @@index([termId, calculatedAt])
+}
+
+model ModelVersion {
+  id String @id @default(uuid()) @db.Uuid
+  version String @unique @db.VarChar(80)
+  artifactSha256 String @db.VarChar(64)
+  featureSchema Json
+  metrics Json
+  targetDefinition String @db.VarChar(500)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  active Boolean @default(false)
+  predictions Prediction[]
+}
+
+model Prediction {
+  id String @id @default(uuid()) @db.Uuid
+  studentId String @db.Uuid
+  termId String @db.Uuid
+  modelVersionId String @db.Uuid
+  riskLevel RiskLevel
+  probability Decimal? @db.Decimal(8, 7)
+  featureSnapshot Json
+  explanation Json?
+  generatedAt DateTime @default(now()) @db.Timestamptz(6)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  modelVersion ModelVersion @relation(fields: [modelVersionId], references: [id], onDelete: Restrict)
+  reviews PredictionReview[]
+  alerts RiskAlert[]
+  @@index([studentId, termId, generatedAt])
+  @@index([termId, riskLevel, generatedAt])
+}
+
+model PredictionReview {
+  id String @id @default(uuid()) @db.Uuid
+  predictionId String @db.Uuid
+  reviewerId String @db.Uuid
+  outcome String @db.VarChar(32)
+  rationale String? @db.VarChar(2000)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  prediction Prediction @relation(fields: [predictionId], references: [id], onDelete: Restrict)
+  reviewer User @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+  @@index([predictionId, createdAt])
+}
+
+model RiskAlert {
+  id String @id @default(uuid()) @db.Uuid
+  studentId String @db.Uuid
+  termId String @db.Uuid
+  predictionId String? @db.Uuid
+  category String @db.VarChar(40)
+  severity RiskLevel
+  reason String @db.VarChar(2000)
+  recommendation String? @db.VarChar(2000)
+  status AlertStatus @default(OPEN)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  resolvedAt DateTime? @db.Timestamptz(6)
+  resolvedById String? @db.Uuid
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  prediction Prediction? @relation(fields: [predictionId], references: [id], onDelete: Restrict)
+  resolvedBy User? @relation("AlertResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  notifications Notification[]
+  @@index([status, severity, termId, createdAt])
+  @@index([studentId, status])
+}
+
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+  recipientId String @db.Uuid
+  alertId String? @db.Uuid
+  title String @db.VarChar(180)
+  message String @db.VarChar(1000)
+  idempotencyKey String? @unique @db.VarChar(120)
+  inAppVisible Boolean @default(true)
+  readAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  recipient User @relation(fields: [recipientId], references: [id], onDelete: Restrict)
+  alert RiskAlert? @relation(fields: [alertId], references: [id], onDelete: Restrict)
+  emailDelivery NotificationEmailDelivery?
+  @@index([recipientId, readAt, createdAt])
+}
+
+model NotificationEmailDelivery {
+  id String @id @default(uuid()) @db.Uuid
+  notificationId String @unique @db.Uuid
+  status EmailDeliveryStatus @default(PENDING)
+  attemptCount Int @default(0)
+  providerMessageId String? @db.VarChar(255)
+  lastErrorCode String? @db.VarChar(120)
+  acceptedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+  @@index([status, updatedAt])
+}
+
+model NotificationPreference {
+  userId String @id @db.Uuid
+  inApp Boolean @default(true)
+  email Boolean @default(false)
+  weeklySummary Boolean @default(false)
+  categories Json
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model ImportJob {
+  id String @id @default(uuid()) @db.Uuid
+  createdById String @db.Uuid
+  status ImportStatus @default(PREVIEWED)
+  idempotencyKey String @unique @db.VarChar(120)
+  fileSha256 String @db.VarChar(64)
+  totalRows Int
+  validRows Int
+  errorCount Int
+  payload Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  committedAt DateTime? @db.Timestamptz(6)
+  createdBy User @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  errors ImportRowError[]
+  @@index([createdById, createdAt])
+}
+
+model ImportRowError {
+  id String @id @default(uuid()) @db.Uuid
+  importJobId String @db.Uuid
+  rowNumber Int
+  field String? @db.VarChar(80)
+  message String @db.VarChar(500)
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Restrict)
+  @@index([importJobId, rowNumber])
+}
+
+model AuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String? @db.Uuid
+  action String @db.VarChar(100)
+  entityType String @db.VarChar(80)
+  entityId String? @db.VarChar(80)
+  requestId String? @db.VarChar(80)
+  changes Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
