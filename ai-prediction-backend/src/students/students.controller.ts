@@ -16,10 +16,19 @@ interface TeacherStudentScope {
 export class StudentsController {
   constructor(private prisma: PrismaService) {}
   @Roles(Role.ADMIN, Role.TEACHER) @Get()
-  async list(@CurrentUser() actor:AuthUser,@Query('page') p?: string, @Query('pageSize') s?: string, @Query('q') q?: string, @Query('departmentId') departmentId?: string, @Query('sort') sort = 'name', @Query('order') order = 'asc') {
+  async list(@CurrentUser() actor:AuthUser,@Query('page') p?: string, @Query('pageSize') s?: string, @Query('q') q?: string, @Query('departmentId') departmentId?: string, @Query('status') status?: string, @Query('sort') sort = 'name', @Query('order') order = 'asc') {
     const page = pageQuery(p, s); const allowed = ['name', 'studentNumber', 'createdAt'];
     if (!allowed.includes(sort) || !['asc', 'desc'].includes(order)) throw new BadRequestException('Invalid sort options');
-    const where = { status: 'ACTIVE' as const, ...(actor.role==='TEACHER'?{enrollments:{some:{status:'ENROLLED' as const,offering:{teacher:{userId:actor.id}}}}}:{}), ...(departmentId ? { departmentId } : {}), ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { studentNumber: { contains: q, mode: 'insensitive' as const } }] } : {}) };
+    // Teachers always see active assigned students. Admins may request ACTIVE (default), INACTIVE, or ALL.
+    let statusFilter: { status?: 'ACTIVE' | 'INACTIVE' } = { status: 'ACTIVE' };
+    if (actor.role === 'ADMIN') {
+      const normalized = (status ?? 'ACTIVE').toUpperCase();
+      if (!['ACTIVE', 'INACTIVE', 'ALL'].includes(normalized)) throw new BadRequestException('status must be ACTIVE, INACTIVE, or ALL');
+      statusFilter = normalized === 'ALL' ? {} : { status: normalized as 'ACTIVE' | 'INACTIVE' };
+    } else if (status && status.toUpperCase() !== 'ACTIVE') {
+      throw new BadRequestException('Teachers may only list active students');
+    }
+    const where = { ...statusFilter, ...(actor.role==='TEACHER'?{enrollments:{some:{status:'ENROLLED' as const,offering:{teacher:{userId:actor.id}}}}}:{}), ...(departmentId ? { departmentId } : {}), ...(q ? { OR: [{ name: { contains: q, mode: 'insensitive' as const } }, { studentNumber: { contains: q, mode: 'insensitive' as const } }] } : {}) };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.student.findMany({ where, select: { id: true, userId: true, studentNumber: true, name: true, email: true, departmentId: true, department: { select: { id: true, code: true, name: true } }, enrollmentYear: true, status: true }, orderBy: { [sort]: order }, skip: page.skip, take: page.pageSize }),
       this.prisma.student.count({ where }),

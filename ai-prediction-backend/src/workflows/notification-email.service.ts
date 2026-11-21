@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EmailDeliveryStatus, Prisma } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
@@ -16,6 +16,8 @@ const retryableCodes = new Set(['ECONNECTION', 'ECONNRESET', 'ETIMEDOUT', 'ESOCK
 
 @Injectable()
 export class NotificationEmailService {
+  private readonly logger = new Logger(NotificationEmailService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
@@ -35,15 +37,29 @@ export class NotificationEmailService {
       include: { notification: { include: { recipient: { include: { preference: true } } } } },
     });
     if (!delivery) throw new NotFoundException('Email delivery record not found');
-    if (delivery.status === EmailDeliveryStatus.SMTP_ACCEPTED || delivery.status === EmailDeliveryStatus.SENDING) return this.selectStatus(delivery);
+    if (delivery.notification.alertId) {
+      await this.recordDeliveryLog(notificationId, 'EMAIL_ALERT_BLOCKED', { reason: 'automated_ml_risk_alert_disabled' });
+      throw new ConflictException('Automated alert email is not enabled');
+    }
+    if (delivery.status === EmailDeliveryStatus.SMTP_ACCEPTED || delivery.status === EmailDeliveryStatus.SENDING) {
+      await this.recordDeliveryLog(notificationId, 'EMAIL_DISPATCH_SKIPPED', {
+        status: delivery.status,
+        reason: delivery.status === EmailDeliveryStatus.SMTP_ACCEPTED ? 'already_accepted' : 'in_flight',
+      });
+      return this.selectStatus(delivery);
+    }
     if (delivery.status === EmailDeliveryStatus.FAILED && !explicitRetry) return this.selectStatus(delivery);
 
     const preference = delivery.notification.recipient.preference;
     if (!preference?.email) {
-      return this.update(delivery.id, { status: EmailDeliveryStatus.SUPPRESSED_PREFERENCE, lastErrorCode: null });
+      const updated = await this.update(delivery.id, { status: EmailDeliveryStatus.SUPPRESSED_PREFERENCE, lastErrorCode: null });
+      await this.recordDeliveryLog(notificationId, 'EMAIL_SUPPRESSED_PREFERENCE', { deliveryId: delivery.id });
+      return updated;
     }
     if (!this.config.get<boolean>('SMTP_ENABLED')) {
-      return this.update(delivery.id, { status: EmailDeliveryStatus.SKIPPED_DISABLED, lastErrorCode: null });
+      const updated = await this.update(delivery.id, { status: EmailDeliveryStatus.SKIPPED_DISABLED, lastErrorCode: null });
+      await this.recordDeliveryLog(notificationId, 'EMAIL_SKIPPED_DISABLED', { deliveryId: delivery.id });
+      return updated;
     }
 
     const claimed = await this.prisma.notificationEmailDelivery.updateMany({
@@ -52,6 +68,8 @@ export class NotificationEmailService {
     });
     if (claimed.count !== 1) return this.status(notificationId);
 
+    await this.recordDeliveryLog(notificationId, 'EMAIL_SENDING', { deliveryId: delivery.id, explicitRetry });
+
     const transporter = this.createTransport({
       host: this.config.getOrThrow<string>('SMTP_HOST'),
       port: this.config.getOrThrow<number>('SMTP_PORT'),
@@ -59,15 +77,16 @@ export class NotificationEmailService {
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,
       socketTimeout: 20_000,
-      auth: { user: this.config.getOrThrow<string>('SMTP_USER'), pass: this.config.getOrThrow<string>('SMTP_PASSWORD') },
+      auth: { user: this.config.getOrThrow<string>('SMTP_USER'), pass: this.resolveSmtpPassword() },
     });
     const recipient = delivery.notification.recipient;
+    const maxAttempts = this.config.get<number>('EMAIL_MAX_ATTEMPTS') ?? 3;
     let lastCode = 'SMTP_ERROR';
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       await this.prisma.notificationEmailDelivery.update({ where: { id: delivery.id }, data: { attemptCount: attempt } });
       try {
         const result = await transporter.sendMail({
-          from: this.config.getOrThrow<string>('SMTP_FROM'),
+          from: this.formatFromAddress(),
           to: recipient.email,
           subject: delivery.notification.title,
           text: delivery.notification.message,
@@ -75,19 +94,46 @@ export class NotificationEmailService {
         if (!result.accepted?.length) {
           throw Object.assign(new Error('SMTP did not accept the recipient'), { code: 'EADDRESSREJECTED' });
         }
-        return this.update(delivery.id, {
+        const accepted = await this.update(delivery.id, {
           status: EmailDeliveryStatus.SMTP_ACCEPTED,
           providerMessageId: result.messageId.slice(0, 255),
           acceptedAt: new Date(),
           lastErrorCode: null,
         });
+        await this.recordDeliveryLog(notificationId, 'EMAIL_SMTP_ACCEPTED', {
+          deliveryId: delivery.id,
+          attempt,
+          providerMessageId: accepted.providerMessageId,
+          note: 'SMTP acceptance is not confirmed inbox delivery',
+        });
+        this.logger.log({
+          event: 'email_smtp_accepted',
+          notificationId,
+          deliveryId: delivery.id,
+          attempt,
+          providerMessageId: accepted.providerMessageId,
+        });
+        return accepted;
       } catch (cause) {
         lastCode = this.safeErrorCode(cause);
-        if (attempt === 3 || !this.isTransient(cause)) break;
+        this.logger.warn({
+          event: 'email_smtp_attempt_failed',
+          notificationId,
+          deliveryId: delivery.id,
+          attempt,
+          lastErrorCode: lastCode,
+        });
+        if (attempt === maxAttempts || !this.isTransient(cause)) break;
         await this.delay(200 * (2 ** (attempt - 1)));
       }
     }
-    return this.update(delivery.id, { status: EmailDeliveryStatus.FAILED, lastErrorCode: lastCode });
+    const failed = await this.update(delivery.id, { status: EmailDeliveryStatus.FAILED, lastErrorCode: lastCode });
+    await this.recordDeliveryLog(notificationId, 'EMAIL_FAILED', {
+      deliveryId: delivery.id,
+      lastErrorCode: lastCode,
+      attemptCount: failed.attemptCount,
+    });
+    return failed;
   }
 
   async retry(notificationId: string) {
@@ -97,12 +143,48 @@ export class NotificationEmailService {
     return this.dispatch(notificationId, true);
   }
 
+  /** Structured delivery evidence without recipient address, body, or SMTP secrets. */
+  async recordDeliveryLog(notificationId: string, action: string, changes: Prisma.InputJsonValue) {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          actorId: null,
+          action,
+          entityType: 'NotificationEmailDelivery',
+          entityId: notificationId,
+          changes,
+        },
+      });
+    } catch (cause) {
+      this.logger.warn({
+        event: 'email_delivery_log_failed',
+        notificationId,
+        action,
+        code: cause instanceof Error ? cause.name : 'LOG_ERROR',
+      });
+    }
+  }
+
   private update(id: string, data: Prisma.NotificationEmailDeliveryUpdateInput) {
     return this.prisma.notificationEmailDelivery.update({ where: { id }, data, select: publicFields });
   }
 
   private selectStatus(delivery: { id: string; status: EmailDeliveryStatus; attemptCount: number; providerMessageId: string | null; lastErrorCode: string | null; acceptedAt: Date | null }) {
     return { id: delivery.id, status: delivery.status, attemptCount: delivery.attemptCount, providerMessageId: delivery.providerMessageId, lastErrorCode: delivery.lastErrorCode, acceptedAt: delivery.acceptedAt };
+  }
+
+  private resolveSmtpPassword() {
+    const pass = this.config.get<string>('SMTP_PASS') || this.config.get<string>('SMTP_PASSWORD');
+    if (!pass) throw new Error('SMTP_PASS or SMTP_PASSWORD is required when SMTP is enabled');
+    return pass;
+  }
+
+  private formatFromAddress() {
+    const from = this.config.getOrThrow<string>('SMTP_FROM');
+    const name = (this.config.get<string>('SMTP_FROM_NAME') || 'Academic Sentinel').trim();
+    if (!name || from.includes('<')) return from;
+    const escaped = name.replace(/["\\]/g, '');
+    return `"${escaped}" <${from}>`;
   }
 
   private safeErrorCode(cause: unknown) {

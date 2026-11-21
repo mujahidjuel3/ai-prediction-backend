@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@prisma/client';
 import * as argon2 from 'argon2';
@@ -13,6 +13,37 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
     if (!user || user.status !== 'ACTIVE' || !(await argon2.verify(user.passwordHash, password))) throw new UnauthorizedException('Invalid email or password');
     return this.issue(user.id, user.email, user.role);
+  }
+  /** Public self-registration creates a login account only. Academic profiles still require Admin linking. Never creates ADMIN. */
+  async register(input: { email: string; password: string; name: string; role: Role }) {
+    if (input.role !== Role.STUDENT && input.role !== Role.TEACHER) {
+      throw new ForbiddenException('Administrator accounts cannot be self-registered');
+    }
+    const studentRegistrationEnabled = process.env.STUDENT_SELF_REGISTRATION_ENABLED === 'true'
+      || (process.env.STUDENT_SELF_REGISTRATION_ENABLED !== 'false' && process.env.NODE_ENV !== 'production');
+    if (input.role === Role.STUDENT && !studentRegistrationEnabled) {
+      throw new ForbiddenException('Student self-registration is disabled');
+    }
+    if (input.role === Role.TEACHER && process.env.TEACHER_SELF_REGISTRATION_ENABLED !== 'true') {
+      throw new ForbiddenException('Teacher self-registration is disabled by university policy configuration');
+    }
+    if (input.password.length < 14 || input.password.length > 128) throw new BadRequestException('Password must be 14 to 128 characters');
+    const email = input.email.trim().toLowerCase();
+    const name = input.name.trim();
+    if (name.length < 2 || name.length > 160) throw new BadRequestException('Name must be 2 to 160 characters');
+    const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
+    try {
+      const user = await this.prisma.user.create({
+        data: { email, name, role: input.role, passwordHash },
+        select: { id: true, email: true, name: true, role: true, status: true },
+      });
+      return this.issue(user.id, user.email, user.role);
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'P2002') {
+        throw new ConflictException('An account with this email already exists');
+      }
+      throw error;
+    }
   }
   private async issue(userId: string, email: string, role: Role) {
     const access = await this.jwt.signAsync({ sub: userId, email, role }, { secret: process.env.JWT_ACCESS_SECRET!, expiresIn: (process.env.JWT_ACCESS_TTL ?? '10m') as `${number}${'s'|'m'|'h'|'d'}` });

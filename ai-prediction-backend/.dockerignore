@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+!.env.production.example
+coverage
+.git
+*.md
+scripts/test-email-migration-isolated.mjs

@@ -1,6 +1,6 @@
 # Academic Sentinel API
 
-NestJS modular monolith, PostgreSQL and Prisma. API prefix: `/api/v1`; Swagger UI: `/api/docs`. This is a local development setup. No AWS, paid API, university dataset, real users, or production account is configured.
+NestJS modular monolith, PostgreSQL and Prisma. API prefix: `/api/v1`. Swagger UI (`/api/docs`) is enabled only when `NODE_ENV` is not `production`. Local development does not configure university production accounts or real student datasets.
 
 ## Requirements
 
@@ -22,7 +22,7 @@ npm.cmd install
 Copy-Item .env.example .env
 ```
 
-Edit `.env` locally. Generate `JWT_ACCESS_SECRET` and `ML_SERVICE_TOKEN` as independent random values of at least 32 characters; never commit `.env`. Set `DATABASE_URL`, and ensure development `CORS_ORIGINS` lists both frontend origins (`http://localhost:3000,http://localhost:3001`). Production requires `CORS_ORIGINS` to contain exactly `https://www.academicsentinel.live,https://admin.academicsentinel.live`, `COOKIE_SECURE=true`, and a valid `ML_SERVICE_URL` URI. `DATABASE_URL`, `JWT_ACCESS_SECRET`, `ML_SERVICE_TOKEN`, and `CORS_ORIGINS` are required by startup validation. `PORT` defaults to 4000 and the service binds to `0.0.0.0`. `ML_SERVICE_URL` currently has no backend source-code consumer; its production value remains to be determined and the ML service must not be exposed publicly. Apply a schema migration with `npm.cmd run prisma:migrate -- --name init`, then `npm.cmd run prisma:seed` for clearly synthetic example records. Seed data creates no login.
+Edit `.env` locally. Generate `JWT_ACCESS_SECRET` and `ML_SERVICE_TOKEN` as independent random values of at least 32 characters; never commit `.env`. Set `DATABASE_URL`, and ensure development `CORS_ORIGINS` lists both frontend origins (`http://localhost:3000,http://localhost:3001`). Production requires `CORS_ORIGINS` to contain exactly `https://www.academicsentinel.live,https://admin.academicsentinel.live`, `COOKIE_SECURE=true`, and a valid private `ML_SERVICE_URL` URI. `DATABASE_URL`, `JWT_ACCESS_SECRET`, `ML_SERVICE_TOKEN`, and `CORS_ORIGINS` are required by startup validation. `PORT` defaults to 4000 and the service binds to `0.0.0.0`. Nest probes the ML service for Admin status and keeps prediction generation disabled until university gates pass; keep the ML host private. For existing databases use `npx prisma migrate deploy` (never `migrate reset` on shared data). `npm.cmd run prisma:seed` loads synthetic example records only and creates no login.
 
 Bootstrap the first local Admin exactly once by temporarily setting `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` (minimum 14 characters), and `BOOTSTRAP_ADMIN_NAME` in the process environment, then running `npm.cmd run bootstrap:admin`. The CLI refuses production mode and refuses if any Admin already exists. Remove the bootstrap values from the shell after use. There is no public admin-registration route.
 
@@ -38,10 +38,19 @@ The authorized Admin preview route is `POST /api/v1/imports/academic-records/pre
 
 Student number, employee number, official grading/GPA formulas, attendance policy, alert policy and prediction target are institution decisions. See `../DOMAIN_DECISIONS.md`. No prediction endpoint will use a threshold substitute when the ML artifact is absent.
 
+## Production packaging
+
+- Container image: `Dockerfile` (Node 22). Entry: `node dist/main.js` after `npm run build` with `tsconfig.build.json`.
+- Release DB step: `npx prisma migrate deploy` only (never `migrate reset` on shared/production data).
+- Secrets template: `.env.production.example`. Frontends must not receive SMTP/JWT/DB secrets.
+- Ops notes: `reports/PRODUCTION_OPS_RUNBOOK.md`.
+
 ## Optional SMTP delivery for manual Admin messages
 
 Email is disabled unless the institution has approved a manual-message consent/delivery policy and `EMAIL_POLICY_APPROVED=true`, then `SMTP_ENABLED=true`. The recipient must also have explicitly enabled the saved email notification preference; otherwise delivery is recorded as suppressed/skipped. Risk-alert email is not automated because target/risk/recipient/escalation policy has not been approved. Startup validation rejects enabling SMTP without the policy approval flag.
 
-For a Gmail mailbox, configure `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER` as the sender mailbox, `SMTP_PASSWORD` as a Google App Password (Google account 2-Step Verification is required), and `SMTP_FROM` as the sender email address. Port 587 with `SMTP_SECURE=false` is also supported for STARTTLS. Keep all these settings in the backend's server-side environment only; do not put them in either frontend's `NEXT_PUBLIC_*` variables or commit credentials. When SMTP is enabled, the backend validates all required settings at startup. When disabled, the existing in-app workflow remains available.
+For a Gmail mailbox, configure only backend environment variables: `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER` as the sender mailbox, `SMTP_PASS` (preferred) or legacy `SMTP_PASSWORD` as a Google App Password (2-Step Verification required; never use the normal Gmail password), `SMTP_FROM` as the sender email, and optional `SMTP_FROM_NAME`. Port 587 with `SMTP_SECURE=false` is also supported for STARTTLS. Keep all SMTP secrets server-side only; never put them in either frontend or any `NEXT_PUBLIC_*` variable. When SMTP is enabled, startup validation requires policy approval plus `SMTP_PASS` or `SMTP_PASSWORD`. When disabled, in-app messaging remains available.
 
-`SMTP_ACCEPTED` means the SMTP server accepted the message for processing. It does not confirm delivery to the recipient's inbox. Transient SMTP errors are retried up to three attempts; failures and safe error codes are persisted. Admins can retry a failed manual-message email from the Notifications page. Idempotency keys prevent repeat API submissions from creating or sending duplicate messages after an uncertain client response. As with SMTP generally, an ambiguous network failure after provider acceptance cannot provide a mathematical exactly-once delivery guarantee; reconcile persisted status before retrying such a case.
+A background email worker (`EMAIL_WORKER_ENABLED`, default true) drains leftover `PENDING` manual deliveries and can optionally auto-retry `FAILED` rows when `EMAIL_WORKER_AUTO_RETRY=true` (default false). Stuck `SENDING` rows older than `EMAIL_STALE_SENDING_MS` are marked `FAILED` with `STALE_SENDING` and are **not** automatically resent, to avoid duplicate emails after an ambiguous SMTP acceptance. Structured delivery actions are written to `AuditLog` without recipient addresses, message bodies, or credentials.
+
+`SMTP_ACCEPTED` means the SMTP server accepted the message for processing. It does not confirm delivery to the recipient's inbox. Transient SMTP errors are retried up to `EMAIL_MAX_ATTEMPTS` (default 3); failures and safe error codes are persisted. Admins can retry a failed manual-message email from the Notifications page. Idempotency keys prevent repeat API submissions from creating or sending duplicate messages after an uncertain client response. Automated ML risk-alert email remains disabled until university approval.

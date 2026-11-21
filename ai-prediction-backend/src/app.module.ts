@@ -14,6 +14,7 @@ import { WorkflowsModule } from './workflows/workflows.module';
 import { InstitutionModule } from './institution/institution.module';
 import { ImportsModule } from './imports/imports.module';
 import { ReportsModule } from './reports/reports.module';
+import { MlModule } from './ml/ml.module';
 import { LoggerModule } from 'nestjs-pino';
 
 export const environmentSchema = Joi.object({
@@ -44,15 +45,44 @@ export const environmentSchema = Joi.object({
   }, 'validated frontend origins'),
   ML_SERVICE_URL: Joi.when('NODE_ENV', { is: 'production', then: Joi.string().uri().required(), otherwise: Joi.string().uri().default('http://127.0.0.1:8000') }),
   ML_SERVICE_TOKEN: Joi.string().min(32).required(),
+  ML_SERVICE_TIMEOUT_MS: Joi.number().integer().min(250).max(60000).default(3000),
+  ML_SERVICE_RETRIES: Joi.number().integer().min(0).max(3).default(2),
   STUDENT_PREDICTIONS_ENABLED: Joi.boolean().default(false),
+  /** Explicit university gate. Remains false until dataset/target/horizon/thresholds/features/review/consent are approved. */
+  ML_UNIVERSITY_POLICY_APPROVED: Joi.boolean().default(false),
+  /** Must stay false unless a non-synthetic validated/production artifact is approved for student-facing use. */
+  ML_PREDICTION_PERSISTENCE_ENABLED: Joi.boolean().default(false),
+  STUDENT_SELF_REGISTRATION_ENABLED: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.boolean().default(false),
+    otherwise: Joi.boolean().default(true),
+  }),
+  TEACHER_SELF_REGISTRATION_ENABLED: Joi.boolean().default(false),
   EMAIL_POLICY_APPROVED: Joi.boolean().default(false),
   SMTP_ENABLED: Joi.boolean().default(false).when('EMAIL_POLICY_APPROVED', { is: false, then: Joi.valid(false) }),
   SMTP_HOST: Joi.string().hostname().default('smtp.gmail.com'),
   SMTP_PORT: Joi.number().port().default(465),
   SMTP_SECURE: Joi.boolean().default(true),
   SMTP_USER: Joi.when('SMTP_ENABLED', { is: true, then: Joi.string().email().required(), otherwise: Joi.string().allow('').optional() }),
-  SMTP_PASSWORD: Joi.when('SMTP_ENABLED', { is: true, then: Joi.string().min(1).required(), otherwise: Joi.string().allow('').optional() }),
+  /** Preferred Gmail App Password env name. */
+  SMTP_PASS: Joi.string().allow('').optional(),
+  /** Legacy alias for SMTP_PASS. */
+  SMTP_PASSWORD: Joi.string().allow('').optional(),
   SMTP_FROM: Joi.when('SMTP_ENABLED', { is: true, then: Joi.string().email().required(), otherwise: Joi.string().allow('').optional() }),
+  SMTP_FROM_NAME: Joi.string().allow('').default('Academic Sentinel'),
+  EMAIL_WORKER_ENABLED: Joi.boolean().default(true),
+  EMAIL_WORKER_INTERVAL_MS: Joi.number().integer().min(5_000).max(600_000).default(15_000),
+  EMAIL_WORKER_BATCH_SIZE: Joi.number().integer().min(1).max(50).default(10),
+  EMAIL_WORKER_AUTO_RETRY: Joi.boolean().default(false),
+  EMAIL_MAX_ATTEMPTS: Joi.number().integer().min(1).max(5).default(3),
+  EMAIL_MAX_DISPATCH_ROUNDS: Joi.number().integer().min(1).max(5).default(2),
+  EMAIL_RETRY_BACKOFF_MS: Joi.number().integer().min(5_000).max(3_600_000).default(60_000),
+  EMAIL_STALE_SENDING_MS: Joi.number().integer().min(60_000).max(3_600_000).default(300_000),
+}).custom((value, helpers) => {
+  if (value.SMTP_ENABLED && !(value.SMTP_PASS || value.SMTP_PASSWORD)) {
+    return helpers.error('any.custom', { message: 'SMTP_PASS or SMTP_PASSWORD is required when SMTP_ENABLED=true' });
+  }
+  return value;
 });
 
 @Module({
@@ -68,6 +98,7 @@ export const environmentSchema = Joi.object({
     InstitutionModule,
     ImportsModule,
     ReportsModule,
+    MlModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

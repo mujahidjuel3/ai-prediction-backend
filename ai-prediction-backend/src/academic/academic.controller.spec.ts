@@ -32,4 +32,30 @@ describe('AcademicController course catalog', () => {
       where: { departmentId: 'department-uuid', offerings: { some: { teacher: { userId: 'teacher-user' } } } },
     }));
   });
+
+  it('updates an academic term while validating the date range', async () => {
+    const current = {
+      id: 'term-1',
+      code: '2026S1',
+      label: 'Spring 2026',
+      academicYear: '2025-2026',
+      startsAt: new Date('2026-01-01'),
+      endsAt: new Date('2026-05-01'),
+      active: false,
+    };
+    const prisma = {
+      academicTerm: {
+        findUnique: jest.fn().mockResolvedValue(current),
+        update: jest.fn().mockResolvedValue({ ...current, label: 'Spring Term 2026', active: true }),
+      },
+    };
+    const controller = new AcademicController(prisma as never);
+    await expect(controller.updateTerm('term-1', { label: 'Spring Term 2026', active: true })).resolves.toEqual({
+      data: { ...current, label: 'Spring Term 2026', active: true },
+    });
+    expect(prisma.academicTerm.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'term-1' },
+      data: expect.objectContaining({ label: 'Spring Term 2026', active: true }),
+    }));
+  });
 });

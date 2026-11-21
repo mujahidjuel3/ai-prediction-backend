@@ -16,8 +16,10 @@ async function bootstrap() {
  const origins=(process.env.CORS_ORIGINS??'').split(',').map(v=>v.trim()).filter(Boolean);
  app.enableCors({origin:origins,credentials:true,methods:['GET','POST','PATCH','DELETE','OPTIONS'],allowedHeaders:['Content-Type','Authorization','X-Request-Id','Idempotency-Key','X-CSRF-Token']});
  app.useGlobalPipes(new ValidationPipe({whitelist:true,forbidNonWhitelisted:true,transform:true})); app.useGlobalFilters(new ApiExceptionFilter());
- const doc=new DocumentBuilder().setTitle('Academic Sentinel API').setDescription('Local academic performance and early warning API').setVersion('1.0').addCookieAuth('access_token').build();
- SwaggerModule.setup('api/docs',app,SwaggerModule.createDocument(app,doc));
+ if (process.env.NODE_ENV !== 'production') {
+  const doc = new DocumentBuilder().setTitle('Academic Sentinel API').setDescription('Local academic performance and early warning API').setVersion('1.0').addCookieAuth('access_token').build();
+  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, doc));
+ }
  await app.listen(Number(process.env.PORT??4000),'0.0.0.0');
 }
 void bootstrap();

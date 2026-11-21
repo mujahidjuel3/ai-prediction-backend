@@ -18,7 +18,9 @@ describe('AppModule authentication wiring', () => {
     };
     expect(environmentSchema.validate({ ...base, SMTP_ENABLED: true, EMAIL_POLICY_APPROVED: false }).error).toBeDefined();
     expect(environmentSchema.validate({ ...base, SMTP_ENABLED: false, EMAIL_POLICY_APPROVED: false }).error).toBeUndefined();
-    expect(environmentSchema.validate({ ...base, SMTP_ENABLED: true, EMAIL_POLICY_APPROVED: true, SMTP_USER: 'sender@example.com', SMTP_PASSWORD: 'synthetic-test-password', SMTP_FROM: 'sender@example.com' }).error).toBeUndefined();
+    expect(environmentSchema.validate({ ...base, SMTP_ENABLED: true, EMAIL_POLICY_APPROVED: true, SMTP_USER: 'sender@example.com', SMTP_FROM: 'sender@example.com' }).error).toBeDefined();
+    expect(environmentSchema.validate({ ...base, SMTP_ENABLED: true, EMAIL_POLICY_APPROVED: true, SMTP_USER: 'sender@example.com', SMTP_PASS: 'synthetic-app-password', SMTP_FROM: 'sender@example.com' }).error).toBeUndefined();
+    expect(environmentSchema.validate({ ...base, SMTP_ENABLED: true, EMAIL_POLICY_APPROVED: true, SMTP_USER: 'sender@example.com', SMTP_PASSWORD: 'legacy-test-password', SMTP_FROM: 'sender@example.com' }).error).toBeUndefined();
   });
 
   it('resolves the shared JWT guard and JwtService across guarded modules', async () => {
@@ -58,8 +60,13 @@ describe('AppModule authentication wiring', () => {
           update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: '33333333-3333-4333-8333-333333333333', status: data.status, attemptCount: data.attemptCount ?? 0, providerMessageId: data.providerMessageId ?? null, lastErrorCode: data.lastErrorCode ?? null, acceptedAt: data.acceptedAt ?? null })),
           updateMany: jest.fn(async () => ({ count: 1 })),
         },
+        auditLog: {
+          create: jest.fn().mockResolvedValue({ id: 'audit-log' }),
+          findMany: jest.fn().mockResolvedValue([]),
+          count: jest.fn().mockResolvedValue(0),
+        },
         user: {
-          findUnique: jest.fn(async () => ({ ...user })),
+          findUnique: jest.fn(async () => ({ ...user, preference: { inApp: true, email: false } })),
           findMany: jest.fn().mockResolvedValue([]),
           count: jest.fn().mockResolvedValue(0),
         },

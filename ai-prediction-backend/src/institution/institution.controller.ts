@@ -50,6 +50,7 @@ export class InstitutionController {
   try{return{data:await this.prisma.$transaction(async tx=>{const current=await tx.student.findUnique({where:{id},select:{userId:true}});if(!current)throw new NotFoundException('Student profile not found');const data={...dto,...(dto.email!==undefined?{email:dto.email.trim().toLowerCase()}: {})};const profile=await tx.student.update({where:{id},data});if(current.userId&&(dto.name!==undefined||dto.email!==undefined))await tx.user.update({where:{id:current.userId},data:{...(dto.name!==undefined?{name:dto.name}:{}),...(dto.email!==undefined?{email:dto.email.trim().toLowerCase()}:{})}});return profile;})};}catch(error){return this.mapUniqueConflict(error);}
  }
  @Roles(Role.ADMIN) @Delete('students/:id') async deactivateStudent(@Param('id') id:string){return{data:await this.prisma.$transaction(async tx=>{const profile=await tx.student.update({where:{id},data:{status:'INACTIVE'}});if(profile.userId)await tx.user.update({where:{id:profile.userId},data:{status:'INACTIVE'}});return profile;})};}
+ @Roles(Role.ADMIN) @Post('students/:id/reactivate') async reactivateStudent(@Param('id') id:string){return{data:await this.prisma.$transaction(async tx=>{const current=await tx.student.findUnique({where:{id},select:{id:true,status:true,userId:true}});if(!current)throw new NotFoundException('Student profile not found');if(current.status==='ACTIVE')throw new ConflictException('Student profile is already active');const profile=await tx.student.update({where:{id},data:{status:'ACTIVE'}});if(current.userId)await tx.user.update({where:{id:current.userId},data:{status:'ACTIVE'}});return profile;})};}
  @Roles(Role.ADMIN) @Post('students/:id/link-account') async linkStudentAccount(@Param('id') id:string,@Body() dto:AccountProvisioningDto){
   if(dto.accountMode==='CREATE'&&process.env.NODE_ENV==='production')throw new ForbiddenException('Password-based account setup is disabled in production; link an existing active Student account instead');
   if(dto.accountMode==='CREATE'&&dto.userId)throw new BadRequestException('Do not provide userId when creating a new account');
@@ -83,12 +84,30 @@ export class InstitutionController {
  @Roles(Role.ADMIN) @Post('courses') async createCourse(@Body() dto:CourseDto){return{data:await this.prisma.course.create({data:{...dto,credits:dto.credits}})};}
  @Roles(Role.ADMIN) @Patch('courses/:id') async patchCourse(@Param('id') id:string,@Body() dto:CourseUpdateDto){return{data:await this.prisma.course.update({where:{id},data:dto})};}
  @Roles(Role.ADMIN) @Delete('courses/:id') async archiveCourse(@Param('id') id:string){return{data:await this.prisma.course.update({where:{id},data:{active:false}})};}
- @Roles(Role.ADMIN) @Post('offerings') async createOffering(@Body() dto:OfferingDto){return{data:await this.prisma.courseOffering.create({data:{courseId:dto.courseId,termId:dto.termId,teacherId:dto.teacherId??null,section:dto.section??'A'}})};}
- @Roles(Role.ADMIN) @Patch('offerings/:id') async patchOffering(@Param('id') id:string,@Body() dto:OfferingUpdateDto){return{data:await this.prisma.courseOffering.update({where:{id},data:dto})};}
+ @Roles(Role.ADMIN) @Post('offerings') async createOffering(@Body() dto:OfferingDto){
+  await this.assertOfferingRelations(dto.courseId,dto.termId,dto.teacherId);
+  try{return{data:await this.prisma.courseOffering.create({data:{courseId:dto.courseId,termId:dto.termId,teacherId:dto.teacherId??null,section:dto.section??'A'}})};}
+  catch(error){return this.mapOfferingConflict(error);}
+ }
+ @Roles(Role.ADMIN) @Patch('offerings/:id') async patchOffering(@Param('id') id:string,@Body() dto:OfferingUpdateDto){
+  const current=await this.prisma.courseOffering.findUnique({where:{id}});
+  if(!current)throw new NotFoundException('Course offering not found');
+  await this.assertOfferingRelations(dto.courseId??current.courseId,dto.termId??current.termId,dto.teacherId===undefined?current.teacherId??undefined:dto.teacherId??undefined);
+  try{return{data:await this.prisma.courseOffering.update({where:{id},data:{...(dto.courseId!==undefined?{courseId:dto.courseId}:{}),...(dto.termId!==undefined?{termId:dto.termId}:{}),...(dto.teacherId!==undefined?{teacherId:dto.teacherId}:{}),...(dto.section!==undefined?{section:dto.section}:{})}})};}
+  catch(error){return this.mapOfferingConflict(error);}
+ }
  @Roles(Role.ADMIN,Role.TEACHER) @Get('offerings/:id/enrollments') async enrollments(@Param('id') id:string,@CurrentUser() actor:AuthUser){if(actor.role==='TEACHER'&&!await this.teacherHasOffering(actor.id,id))throw new ForbiddenException('Offering is not assigned to this teacher');return{data:await this.prisma.enrollment.findMany({where:{offeringId:id},include:{student:{select:{id:true,studentNumber:true,name:true}},offering:{select:{id:true,termId:true}}}})};}
  @Roles(Role.ADMIN,Role.TEACHER) @Get('offerings/:id/assessments') async assessments(@Param('id') id:string,@CurrentUser() actor:AuthUser){if(actor.role==='TEACHER'&&!await this.teacherHasOffering(actor.id,id))throw new ForbiddenException('Offering is not assigned to this teacher');return{data:await this.prisma.assessment.findMany({where:{offeringId:id},include:{_count:{select:{scores:true}}},orderBy:{dueAt:'asc'}})};}
  @Roles(Role.ADMIN,Role.TEACHER) @Get('assessments/:id/scores') async assessmentScores(@Param('id') id:string,@CurrentUser() actor:AuthUser){const assessment=await this.prisma.assessment.findUnique({where:{id},include:{offering:true}});if(!assessment)throw new NotFoundException('Assessment not found');if(actor.role==='TEACHER'&&!await this.teacherHasOffering(actor.id,assessment.offeringId))throw new ForbiddenException('Offering is not assigned to this teacher');return{data:await this.prisma.assessmentScore.findMany({where:{assessmentId:id},include:{student:{select:{id:true,studentNumber:true,name:true}}},orderBy:{student:{name:'asc'}}})};}
- @Roles(Role.ADMIN) @Post('offerings/:id/enrollments') async enroll(@Param('id') id:string,@Body() dto:EnrollDto){return{data:await this.prisma.enrollment.create({data:{offeringId:id,studentId:dto.studentId}})};}
+ @Roles(Role.ADMIN) @Post('offerings/:id/enrollments') async enroll(@Param('id') id:string,@Body() dto:EnrollDto){
+  const offering=await this.prisma.courseOffering.findUnique({where:{id},select:{id:true}});
+  if(!offering)throw new NotFoundException('Course offering not found');
+  const student=await this.prisma.student.findUnique({where:{id:dto.studentId},select:{id:true,status:true}});
+  if(!student)throw new NotFoundException('Student profile not found');
+  if(student.status!=='ACTIVE')throw new ConflictException('Only active students can be enrolled');
+  try{return{data:await this.prisma.enrollment.create({data:{offeringId:id,studentId:dto.studentId}})};}
+  catch(error){if(typeof error==='object'&&error!==null&&'code'in error&&(error as {code?:unknown}).code==='P2002')throw new ConflictException('Student is already enrolled in this offering');throw error;}
+ }
  @Roles(Role.ADMIN) @Delete('offerings/:id/enrollments/:studentId') async unenroll(@Param('id') id:string,@Param('studentId') studentId:string){const row=await this.prisma.enrollment.updateMany({where:{offeringId:id,studentId,status:'ENROLLED'},data:{status:EnrollmentStatus.WITHDRAWN}});if(!row.count)throw new NotFoundException('Active enrollment not found');return{data:{withdrawn:true}};}
  @Roles(Role.ADMIN,Role.TEACHER) @Post('attendance') async recordAttendance(@Body() dto:AttendanceDto,@CurrentUser() actor:AuthUser){await this.assertOffering(actor,dto.offeringId,dto.studentId);const teacher=actor.role==='TEACHER'?await this.prisma.teacher.findUnique({where:{userId:actor.id},select:{id:true}}):null;return{data:await this.prisma.attendanceRecord.upsert({where:{studentId_offeringId_sessionDate:{studentId:dto.studentId,offeringId:dto.offeringId,sessionDate:new Date(dto.sessionDate)}},create:{...dto,sessionDate:new Date(dto.sessionDate),recordedById:teacher?.id},update:{status:dto.status,recordedById:teacher?.id}})};}
  @Roles(Role.ADMIN,Role.TEACHER) @Get('attendance') async attendance(@CurrentUser() actor:AuthUser,@Query('offeringId') offeringId:string,@Query('studentId') studentId?:string){if(!offeringId)throw new ConflictException('offeringId is required');if(actor.role==='TEACHER'&&!await this.teacherHasOffering(actor.id,offeringId))throw new ForbiddenException('Offering is not assigned to this teacher');return{data:await this.prisma.attendanceRecord.findMany({where:{offeringId,...(studentId?{studentId}:{})},include:{student:{select:{id:true,studentNumber:true,name:true}}},orderBy:{sessionDate:'desc'}})};}
@@ -109,6 +128,19 @@ export class InstitutionController {
   return{id:user.id,email:user.email,name:user.name,role:user.role,status:user.status};
  }
  private mapUniqueConflict(error:unknown):never{if(typeof error==='object'&&error!==null&&'code'in error&&(error as {code?:unknown}).code==='P2002')throw new ConflictException('Email, institutional identifier, or profile link already exists');throw error;}
+ private mapOfferingConflict(error:unknown):never{if(typeof error==='object'&&error!==null&&'code'in error&&(error as {code?:unknown}).code==='P2002')throw new ConflictException('An offering for this course, term, and section already exists');throw error;}
+ private async assertOfferingRelations(courseId:string,termId:string,teacherId?:string|null){
+  const course=await this.prisma.course.findUnique({where:{id:courseId},select:{id:true,active:true}});
+  if(!course)throw new BadRequestException('Course was not found');
+  if(!course.active)throw new ConflictException('Archived courses cannot receive new or updated offerings');
+  const term=await this.prisma.academicTerm.findUnique({where:{id:termId},select:{id:true}});
+  if(!term)throw new BadRequestException('Academic term was not found');
+  if(teacherId){
+   const teacher=await this.prisma.teacher.findUnique({where:{id:teacherId},select:{id:true,status:true}});
+   if(!teacher)throw new BadRequestException('Teacher was not found');
+   if(teacher.status!=='ACTIVE')throw new ConflictException('Inactive teachers cannot be assigned to offerings');
+  }
+ }
  private async teacherHasOffering(userId:string,offeringId:string){return !!(await this.prisma.courseOffering.findFirst({where:{id:offeringId,teacher:{userId}},select:{id:true}}));}
  private async assertOffering(actor:AuthUser,offeringId:string,studentId:string){const enrolled=await this.prisma.enrollment.findFirst({where:{offeringId,studentId,status:'ENROLLED'},select:{id:true}});if(!enrolled)throw new ConflictException('Student is not actively enrolled in this offering');if(actor.role==='TEACHER'&&!await this.teacherHasOffering(actor.id,offeringId))throw new ForbiddenException('Offering is not assigned to this teacher');}
 }
