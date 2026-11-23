@@ -23,6 +23,63 @@ describe('AppModule authentication wiring', () => {
     expect(environmentSchema.validate({ ...base, SMTP_ENABLED: true, EMAIL_POLICY_APPROVED: true, SMTP_USER: 'sender@example.com', SMTP_PASSWORD: 'legacy-test-password', SMTP_FROM: 'sender@example.com' }).error).toBeUndefined();
   });
 
+  it('defaults EMAIL_PROVIDER to smtp and requires Brevo credentials only when provider=brevo and transport is enabled', () => {
+    const base = {
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://test:test@localhost/test',
+      JWT_ACCESS_SECRET: 'x'.repeat(32),
+      CORS_ORIGINS: 'http://localhost:3000',
+      ML_SERVICE_TOKEN: 'y'.repeat(32),
+      EMAIL_POLICY_APPROVED: true,
+    };
+    expect(environmentSchema.validate({ ...base, SMTP_ENABLED: false }).value.EMAIL_PROVIDER).toBe('smtp');
+    expect(environmentSchema.validate({
+      ...base,
+      SMTP_ENABLED: true,
+      EMAIL_PROVIDER: 'brevo',
+    }).error).toBeDefined();
+    expect(environmentSchema.validate({
+      ...base,
+      SMTP_ENABLED: true,
+      EMAIL_PROVIDER: 'brevo',
+      BREVO_API_KEY: 'synthetic-brevo-key',
+      BREVO_SENDER_EMAIL: 'noreply@example.com',
+    }).error).toBeUndefined();
+    expect(environmentSchema.validate({
+      ...base,
+      SMTP_ENABLED: true,
+      EMAIL_PROVIDER: 'smtp',
+      SMTP_USER: 'sender@example.com',
+      SMTP_PASS: 'synthetic-app-password',
+      SMTP_FROM: 'sender@example.com',
+    }).error).toBeUndefined();
+  });
+
+  it('requires DIRECT_URL in production for Neon migrate/direct access and allows optional DIRECT_URL in non-production', () => {
+    const base = {
+      DATABASE_URL: 'postgresql://test:test@localhost/test',
+      JWT_ACCESS_SECRET: 'x'.repeat(32),
+      CORS_ORIGINS: 'http://localhost:3000',
+      ML_SERVICE_TOKEN: 'y'.repeat(32),
+    };
+    expect(environmentSchema.validate({ ...base, NODE_ENV: 'test' }).error).toBeUndefined();
+    expect(environmentSchema.validate({
+      ...base,
+      NODE_ENV: 'production',
+      COOKIE_SECURE: true,
+      CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
+      ML_SERVICE_URL: 'http://ml.internal:8000',
+    }).error).toBeDefined();
+    expect(environmentSchema.validate({
+      ...base,
+      NODE_ENV: 'production',
+      COOKIE_SECURE: true,
+      CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
+      ML_SERVICE_URL: 'http://ml.internal:8000',
+      DIRECT_URL: 'postgresql://test:test@localhost/test',
+    }).error).toBeUndefined();
+  });
+
   it('resolves the shared JWT guard and JwtService across guarded modules', async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)

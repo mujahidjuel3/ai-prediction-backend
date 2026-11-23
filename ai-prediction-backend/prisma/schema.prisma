@@ -3,8 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Runtime: Neon pooled URL (or any PgBouncer-style pooler). Nest long-running process.
+  url       = env("DATABASE_URL")
+  // Migrations / introspect: Neon direct (non-pooler) URL. Required by Prisma when set.
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {

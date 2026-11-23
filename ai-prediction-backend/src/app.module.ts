@@ -20,7 +20,17 @@ import { LoggerModule } from 'nestjs-pino';
 export const environmentSchema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   PORT: Joi.number().port().default(4000),
-  DATABASE_URL: Joi.string().required(),
+  /** Neon pooled (or local) runtime URL used by Prisma Client. */
+  DATABASE_URL: Joi.string().uri({ scheme: ['postgresql', 'postgres'] }).required(),
+  /**
+   * Neon direct (non-pooler) URL for Prisma Migrate. Required in production.
+   * Local/dev may set DIRECT_URL equal to DATABASE_URL when no pooler is used.
+   */
+  DIRECT_URL: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().uri({ scheme: ['postgresql', 'postgres'] }).required(),
+    otherwise: Joi.string().uri({ scheme: ['postgresql', 'postgres'] }).optional(),
+  }),
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_TTL: Joi.string().default('10m'),
   REFRESH_TOKEN_TTL_DAYS: Joi.number().integer().min(1).max(90).default(14),
@@ -59,17 +69,40 @@ export const environmentSchema = Joi.object({
   }),
   TEACHER_SELF_REGISTRATION_ENABLED: Joi.boolean().default(false),
   EMAIL_POLICY_APPROVED: Joi.boolean().default(false),
+  /** Outbound transport master switch. Still requires EMAIL_POLICY_APPROVED=true to enable. */
   SMTP_ENABLED: Joi.boolean().default(false).when('EMAIL_POLICY_APPROVED', { is: false, then: Joi.valid(false) }),
+  /** smtp = Nodemailer (default, local-compatible). brevo = Brevo Transactional Email API. */
+  EMAIL_PROVIDER: Joi.string().valid('smtp', 'brevo').default('smtp'),
   SMTP_HOST: Joi.string().hostname().default('smtp.gmail.com'),
   SMTP_PORT: Joi.number().port().default(465),
   SMTP_SECURE: Joi.boolean().default(true),
-  SMTP_USER: Joi.when('SMTP_ENABLED', { is: true, then: Joi.string().email().required(), otherwise: Joi.string().allow('').optional() }),
+  SMTP_USER: Joi.when('SMTP_ENABLED', {
+    is: true,
+    then: Joi.when('EMAIL_PROVIDER', {
+      is: 'brevo',
+      then: Joi.string().email().allow('').optional(),
+      otherwise: Joi.string().email().required(),
+    }),
+    otherwise: Joi.string().allow('').optional(),
+  }),
   /** Preferred Gmail App Password env name. */
   SMTP_PASS: Joi.string().allow('').optional(),
   /** Legacy alias for SMTP_PASS. */
   SMTP_PASSWORD: Joi.string().allow('').optional(),
-  SMTP_FROM: Joi.when('SMTP_ENABLED', { is: true, then: Joi.string().email().required(), otherwise: Joi.string().allow('').optional() }),
+  SMTP_FROM: Joi.when('SMTP_ENABLED', {
+    is: true,
+    then: Joi.when('EMAIL_PROVIDER', {
+      is: 'brevo',
+      then: Joi.string().email().allow('').optional(),
+      otherwise: Joi.string().email().required(),
+    }),
+    otherwise: Joi.string().allow('').optional(),
+  }),
   SMTP_FROM_NAME: Joi.string().allow('').default('Academic Sentinel'),
+  BREVO_API_KEY: Joi.string().allow('').optional(),
+  BREVO_SENDER_EMAIL: Joi.string().email().allow('').optional(),
+  BREVO_SENDER_NAME: Joi.string().max(160).allow('').default('Academic Sentinel'),
+  BREVO_TIMEOUT_MS: Joi.number().integer().min(1_000).max(60_000).default(15_000),
   EMAIL_WORKER_ENABLED: Joi.boolean().default(true),
   EMAIL_WORKER_INTERVAL_MS: Joi.number().integer().min(5_000).max(600_000).default(15_000),
   EMAIL_WORKER_BATCH_SIZE: Joi.number().integer().min(1).max(50).default(10),
@@ -79,8 +112,18 @@ export const environmentSchema = Joi.object({
   EMAIL_RETRY_BACKOFF_MS: Joi.number().integer().min(5_000).max(3_600_000).default(60_000),
   EMAIL_STALE_SENDING_MS: Joi.number().integer().min(60_000).max(3_600_000).default(300_000),
 }).custom((value, helpers) => {
-  if (value.SMTP_ENABLED && !(value.SMTP_PASS || value.SMTP_PASSWORD)) {
-    return helpers.error('any.custom', { message: 'SMTP_PASS or SMTP_PASSWORD is required when SMTP_ENABLED=true' });
+  if (!value.SMTP_ENABLED) return value;
+  if (value.EMAIL_PROVIDER === 'brevo') {
+    if (!value.BREVO_API_KEY) {
+      return helpers.error('any.custom', { message: 'BREVO_API_KEY is required when EMAIL_PROVIDER=brevo and SMTP_ENABLED=true' });
+    }
+    if (!value.BREVO_SENDER_EMAIL) {
+      return helpers.error('any.custom', { message: 'BREVO_SENDER_EMAIL is required when EMAIL_PROVIDER=brevo and SMTP_ENABLED=true' });
+    }
+    return value;
+  }
+  if (!(value.SMTP_PASS || value.SMTP_PASSWORD)) {
+    return helpers.error('any.custom', { message: 'SMTP_PASS or SMTP_PASSWORD is required when SMTP_ENABLED=true and EMAIL_PROVIDER=smtp' });
   }
   return value;
 });

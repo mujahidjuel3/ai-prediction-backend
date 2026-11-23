@@ -16,6 +16,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
+    "test:neon-isolated": "node scripts/test-neon-isolated.mjs",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
     "openapi": "node scripts/write-openapi.js"
   },
@@ -25,8 +26,10 @@
     "@nestjs/core": "^11.1.0",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.1.0",
+    "@nestjs/platform-socket.io": "^11.2.11",
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/throttler": "^6.4.0",
+    "@nestjs/websockets": "^11.2.11",
     "@prisma/client": "^6.19.0",
     "argon2": "^0.44.0",
     "class-transformer": "^0.5.1",
