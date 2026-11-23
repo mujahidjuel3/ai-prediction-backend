@@ -1,0 +1,63 @@
+# Build and publish the NestJS API image to GitHub Container Registry.
+# Does not deploy to Azure and does not run database migrations.
+name: Publish backend image to GHCR
+
+on:
+  push:
+    # Remote default is currently master; include main so either default branch publishes.
+    branches: [main, master]
+    paths:
+      - "ai-prediction-backend/**"
+      - ".github/workflows/deploy-backend-ghcr.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ghcr-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set lowercase image owner
+        id: meta
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "owner=${owner}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${owner}/academic-sentinel-api" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: docker_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.meta.outputs.image }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long,prefix=
+
+      - name: Build and push NestJS API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./ai-prediction-backend
+          file: ./ai-prediction-backend/Dockerfile
+          push: true
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
