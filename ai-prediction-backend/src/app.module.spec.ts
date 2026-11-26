@@ -67,6 +67,7 @@ describe('AppModule authentication wiring', () => {
       ...base,
       NODE_ENV: 'production',
       COOKIE_SECURE: true,
+      COOKIE_DOMAIN: 'academicsentinel.live',
       CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
       ML_SERVICE_URL: 'http://ml.internal:8000',
     }).error).toBeDefined();
@@ -74,10 +75,58 @@ describe('AppModule authentication wiring', () => {
       ...base,
       NODE_ENV: 'production',
       COOKIE_SECURE: true,
+      COOKIE_DOMAIN: 'academicsentinel.live',
       CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
       ML_SERVICE_URL: 'http://ml.internal:8000',
       DIRECT_URL: 'postgresql://test:test@localhost/test',
     }).error).toBeUndefined();
+  });
+
+  it('requires COOKIE_DOMAIN=academicsentinel.live in production and allows omitting it locally', () => {
+    const base = {
+      DATABASE_URL: 'postgresql://test:test@localhost/test',
+      JWT_ACCESS_SECRET: 'x'.repeat(32),
+      CORS_ORIGINS: 'http://localhost:3000',
+      ML_SERVICE_TOKEN: 'y'.repeat(32),
+    };
+    expect(environmentSchema.validate({ ...base, NODE_ENV: 'development' }).error).toBeUndefined();
+    expect(environmentSchema.validate({
+      ...base,
+      NODE_ENV: 'production',
+      COOKIE_SECURE: true,
+      CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
+      ML_SERVICE_URL: 'http://ml.internal:8000',
+      DIRECT_URL: 'postgresql://test:test@localhost/test',
+    }).error).toBeDefined();
+    expect(environmentSchema.validate({
+      ...base,
+      NODE_ENV: 'production',
+      COOKIE_SECURE: true,
+      COOKIE_DOMAIN: '.academicsentinel.live',
+      CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
+      ML_SERVICE_URL: 'http://ml.internal:8000',
+      DIRECT_URL: 'postgresql://test:test@localhost/test',
+    }).error).toBeDefined();
+    expect(environmentSchema.validate({
+      ...base,
+      NODE_ENV: 'production',
+      COOKIE_SECURE: true,
+      COOKIE_DOMAIN: 'academicsentinel.live',
+      COOKIE_SAME_SITE: 'lax',
+      CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
+      ML_SERVICE_URL: 'http://ml.internal:8000',
+      DIRECT_URL: 'postgresql://test:test@localhost/test',
+    }).error).toBeUndefined();
+    expect(environmentSchema.validate({
+      ...base,
+      NODE_ENV: 'production',
+      COOKIE_SECURE: true,
+      COOKIE_DOMAIN: 'academicsentinel.live',
+      COOKIE_SAME_SITE: 'none',
+      CORS_ORIGINS: 'https://www.academicsentinel.live,https://admin.academicsentinel.live',
+      ML_SERVICE_URL: 'http://ml.internal:8000',
+      DIRECT_URL: 'postgresql://test:test@localhost/test',
+    }).error).toBeDefined();
   });
 
   it('allows API boot without ML URL/token when ML_INTEGRATION_ENABLED is false, and requires both when enabled', () => {

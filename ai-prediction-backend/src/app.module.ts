@@ -35,7 +35,21 @@ export const environmentSchema = Joi.object({
   JWT_ACCESS_TTL: Joi.string().default('10m'),
   REFRESH_TOKEN_TTL_DAYS: Joi.number().integer().min(1).max(90).default(14),
   COOKIE_SECURE: Joi.when('NODE_ENV', { is: 'production', then: Joi.boolean().valid(true).required(), otherwise: Joi.boolean().default(false) }),
-  COOKIE_SAME_SITE: Joi.string().valid('lax', 'strict', 'none').default('lax'),
+  /**
+   * Production requires Shared Domain across api/admin/www: academicsentinel.live.
+   * Local/dev omits COOKIE_DOMAIN for host-only cookies on localhost.
+   */
+  COOKIE_DOMAIN: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().valid('academicsentinel.live').required(),
+    otherwise: Joi.string().allow('').optional(),
+  }),
+  /** Production keeps SameSite=lax for same-site cross-subdomain cookie use with CSRF. */
+  COOKIE_SAME_SITE: Joi.when('NODE_ENV', {
+    is: 'production',
+    then: Joi.string().valid('lax').default('lax'),
+    otherwise: Joi.string().valid('lax', 'strict', 'none').default('lax'),
+  }),
   CORS_ORIGINS: Joi.string().required().custom((value, helpers) => {
     const origins = value.split(',').map((origin: string) => origin.trim()).filter(Boolean);
     if (!origins.length || origins.length !== new Set(origins).size) return helpers.error('any.invalid');
