@@ -6,8 +6,10 @@ describe('MlClientService', () => {
   const config = {
     get: jest.fn((key: string) => {
       if (key === 'ML_SERVICE_URL') return 'http://127.0.0.1:8000';
+      if (key === 'ML_SERVICE_TOKEN') return 'z'.repeat(32);
       if (key === 'ML_SERVICE_TIMEOUT_MS') return 1000;
       if (key === 'ML_SERVICE_RETRIES') return 1;
+      if (key === 'ML_INTEGRATION_ENABLED') return true;
       return undefined;
     }),
     getOrThrow: jest.fn((key: string) => {
@@ -18,9 +20,19 @@ describe('MlClientService', () => {
 
   const originalFetch = globalThis.fetch;
 
+  beforeEach(() => {
+    (config.get as jest.Mock).mockImplementation((key: string) => {
+      if (key === 'ML_SERVICE_URL') return 'http://127.0.0.1:8000';
+      if (key === 'ML_SERVICE_TOKEN') return 'z'.repeat(32);
+      if (key === 'ML_SERVICE_TIMEOUT_MS') return 1000;
+      if (key === 'ML_SERVICE_RETRIES') return 1;
+      if (key === 'ML_INTEGRATION_ENABLED') return true;
+      return undefined;
+    });
+  });
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    jest.restoreAllMocks();
   });
 
   it('returns ready status from the ML health endpoint', async () => {

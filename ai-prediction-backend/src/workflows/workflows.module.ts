@@ -5,11 +5,19 @@ import { WorkflowsController } from './workflows.controller';
 import { NotificationEmailService, brevoFetchProvider, mailTransportFactoryProvider } from './notification-email.service';
 import { EmailDeliveryWorker } from './email-delivery.worker';
 import { NotificationGateway } from './notification.gateway';
+import { DemoPredictionService } from './demo-prediction.service';
 
 @Module({
   imports: [AuthModule, MlModule],
   controllers: [WorkflowsController],
-  providers: [NotificationEmailService, mailTransportFactoryProvider, brevoFetchProvider, EmailDeliveryWorker, NotificationGateway],
-  exports: [NotificationEmailService, NotificationGateway],
+  providers: [
+    NotificationEmailService,
+    mailTransportFactoryProvider,
+    brevoFetchProvider,
+    EmailDeliveryWorker,
+    NotificationGateway,
+    DemoPredictionService,
+  ],
+  exports: [NotificationEmailService, NotificationGateway, DemoPredictionService],
 })
 export class WorkflowsModule {}

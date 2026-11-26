@@ -80,6 +80,26 @@ describe('AppModule authentication wiring', () => {
     }).error).toBeUndefined();
   });
 
+  it('allows API boot without ML URL/token when ML_INTEGRATION_ENABLED is false, and requires both when enabled', () => {
+    const base = {
+      NODE_ENV: 'test',
+      DATABASE_URL: 'postgresql://test:test@localhost/test',
+      JWT_ACCESS_SECRET: 'x'.repeat(32),
+      CORS_ORIGINS: 'http://localhost:3000',
+    };
+    expect(environmentSchema.validate({ ...base, ML_INTEGRATION_ENABLED: false }).error).toBeUndefined();
+    expect(environmentSchema.validate({
+      ...base,
+      ML_INTEGRATION_ENABLED: true,
+    }).error).toBeDefined();
+    expect(environmentSchema.validate({
+      ...base,
+      ML_INTEGRATION_ENABLED: true,
+      ML_SERVICE_URL: 'http://127.0.0.1:8000',
+      ML_SERVICE_TOKEN: 'y'.repeat(32),
+    }).error).toBeUndefined();
+  });
+
   it('resolves the shared JWT guard and JwtService across guarded modules', async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService)

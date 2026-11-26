@@ -3,6 +3,11 @@ import { WorkflowsController } from './workflows.controller';
 
 describe('WorkflowsController manual notification idempotency', () => {
   const gateway = { emitNotificationNew: jest.fn() };
+  const demo = {
+    status: jest.fn().mockResolvedValue({ generationEnabled: false, disclaimer: 'DEMO / SYNTHETIC' }),
+    generateDemoPredictions: jest.fn(),
+    demoSummary: jest.fn(),
+  };
 
   beforeEach(() => {
     gateway.emitNotificationNew.mockReset();
@@ -17,7 +22,7 @@ describe('WorkflowsController manual notification idempotency', () => {
         ready: { status: 'ready', modelAvailable: true, operatingMode: 'synthetic_demo', isSynthetic: true, disclaimer: 'Synthetic demo mode only.' },
       }),
     };
-    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never);
+    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never, demo as never);
     await expect(controller.generate()).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'PREDICTION_GENERATION_DISABLED' }),
     });
@@ -35,7 +40,7 @@ describe('WorkflowsController manual notification idempotency', () => {
     };
     const email = { dispatch: jest.fn(), retry: jest.fn() };
     const ml = { probe: jest.fn(), getReadyStatus: jest.fn(), predict: jest.fn() };
-    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never);
+    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never, demo as never);
     const result = await controller.createNotification({ recipientId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', title: 'Duplicate', message: 'Duplicate' }, 'same-manual-event-key');
     expect(result.data.notification).toBe(existing);
     expect(result.data.duplicate).toBe(true);
@@ -66,7 +71,7 @@ describe('WorkflowsController manual notification idempotency', () => {
     };
     const email = { dispatch: jest.fn().mockResolvedValue({ status: 'SKIPPED_DISABLED' }), retry: jest.fn() };
     const ml = { probe: jest.fn() };
-    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never);
+    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never, demo as never);
     await controller.createNotification({ recipientId: created.recipientId, title: 'Manual notice', message: 'Hello' }, 'unique-manual-event-key');
     expect(gateway.emitNotificationNew).toHaveBeenCalledTimes(1);
     expect(gateway.emitNotificationNew).toHaveBeenCalledWith(created.recipientId, expect.objectContaining({
@@ -88,7 +93,7 @@ describe('WorkflowsController manual notification idempotency', () => {
     };
     const email = { dispatch: jest.fn(), retry: jest.fn() };
     const ml = { probe: jest.fn() };
-    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never);
+    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never, demo as never);
     await expect(controller.createNotification({ recipientId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', title: 'Manual notice', message: 'Hello' }, 'failing-manual-event-key')).rejects.toThrow('forced persistence failure');
     expect(gateway.emitNotificationNew).not.toHaveBeenCalled();
     expect(email.dispatch).not.toHaveBeenCalled();
@@ -98,7 +103,7 @@ describe('WorkflowsController manual notification idempotency', () => {
     const prisma = { notification: { findUnique: jest.fn().mockResolvedValue({ id: 'notification', alertId: 'alert-id' }) } };
     const email = { dispatch: jest.fn(), retry: jest.fn().mockRejectedValue(new ConflictException('Automated alert email is not enabled')) };
     const ml = { probe: jest.fn(), getReadyStatus: jest.fn(), predict: jest.fn() };
-    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never);
+    const controller = new WorkflowsController(prisma as never, email as never, ml as never, gateway as never, demo as never);
     await expect(controller.retryNotificationEmail('notification')).rejects.toBeInstanceOf(ConflictException);
     expect(email.retry).toHaveBeenCalledWith('notification');
   });

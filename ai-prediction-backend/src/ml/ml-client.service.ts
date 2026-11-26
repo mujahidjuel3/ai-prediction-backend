@@ -31,12 +31,20 @@ export class MlClientService {
 
   constructor(private readonly config: ConfigService) {}
 
+  isIntegrationEnabled(): boolean {
+    return this.config.get<boolean>('ML_INTEGRATION_ENABLED') === true;
+  }
+
   private baseUrl(): string {
     return (this.config.get<string>('ML_SERVICE_URL') ?? 'http://127.0.0.1:8000').replace(/\/+$/, '');
   }
 
   private token(): string {
-    return this.config.getOrThrow<string>('ML_SERVICE_TOKEN');
+    const token = this.config.get<string>('ML_SERVICE_TOKEN');
+    if (!token || token.length < 32) {
+      throw new ServiceUnavailableException('ML_SERVICE_TOKEN is not configured for ML integration');
+    }
+    return token;
   }
 
   private timeoutMs(): number {
@@ -73,6 +81,9 @@ export class MlClientService {
   }
 
   async probe(): Promise<{ reachable: boolean; ready?: MlReadyStatus; error?: string }> {
+    if (!this.isIntegrationEnabled()) {
+      return { reachable: false, error: 'ML_INTEGRATION_ENABLED is false' };
+    }
     try {
       const ready = await this.getReadyStatus();
       return { reachable: true, ready };

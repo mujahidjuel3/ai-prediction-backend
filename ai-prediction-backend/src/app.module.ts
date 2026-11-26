@@ -53,8 +53,21 @@ export const environmentSchema = Joi.object({
     if (isProduction && origins.length !== 2) return helpers.error('any.invalid');
     return value;
   }, 'validated frontend origins'),
-  ML_SERVICE_URL: Joi.when('NODE_ENV', { is: 'production', then: Joi.string().uri().required(), otherwise: Joi.string().uri().default('http://127.0.0.1:8000') }),
-  ML_SERVICE_TOKEN: Joi.string().min(32).required(),
+  /**
+   * When false, Nest boots without requiring a live ML service (demo/local/API-only).
+   * URL and token are required only when ML_INTEGRATION_ENABLED=true.
+   */
+  ML_INTEGRATION_ENABLED: Joi.boolean().default(false),
+  ML_SERVICE_URL: Joi.when('ML_INTEGRATION_ENABLED', {
+    is: true,
+    then: Joi.string().uri().required(),
+    otherwise: Joi.string().uri().allow('').optional().default('http://127.0.0.1:8000'),
+  }),
+  ML_SERVICE_TOKEN: Joi.when('ML_INTEGRATION_ENABLED', {
+    is: true,
+    then: Joi.string().min(32).required(),
+    otherwise: Joi.string().min(32).allow('').optional().default('ml-integration-disabled-placeholder-token'),
+  }),
   ML_SERVICE_TIMEOUT_MS: Joi.number().integer().min(250).max(60000).default(3000),
   ML_SERVICE_RETRIES: Joi.number().integer().min(0).max(3).default(2),
   STUDENT_PREDICTIONS_ENABLED: Joi.boolean().default(false),
@@ -62,6 +75,13 @@ export const environmentSchema = Joi.object({
   ML_UNIVERSITY_POLICY_APPROVED: Joi.boolean().default(false),
   /** Must stay false unless a non-synthetic validated/production artifact is approved for student-facing use. */
   ML_PREDICTION_PERSISTENCE_ENABLED: Joi.boolean().default(false),
+  /**
+   * Demo-only: allows Admin to run synthetic ML inference and persist clearly labeled DEMO/SYNTHETIC predictions.
+   * Never enables production POST /predictions/generate.
+   */
+  DEMO_PREDICTION_ENABLED: Joi.boolean().default(false),
+  /** Comma-separated emails allowed for Admin-triggered test messages. Empty = test email disabled. */
+  EMAIL_TEST_RECIPIENTS: Joi.string().allow('').default(''),
   STUDENT_SELF_REGISTRATION_ENABLED: Joi.when('NODE_ENV', {
     is: 'production',
     then: Joi.boolean().default(false),
