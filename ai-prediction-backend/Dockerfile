@@ -8,7 +8,12 @@ FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npx prisma generate && npm run build && npm prune --omit=dev
+# Generate Prisma Client inside Linux Bookworm (OpenSSL 3). Never reuse a Windows-generated client.
+RUN npx prisma generate \
+  && test -f node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node \
+  && npm run build \
+  && npm prune --omit=dev \
+  && test -f node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
@@ -20,6 +25,8 @@ COPY --from=build --chown=nest:nest /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=nest:nest /app/node_modules ./node_modules
 COPY --from=build --chown=nest:nest /app/dist ./dist
 COPY --from=build --chown=nest:nest /app/prisma ./prisma
+# Fail the image build if the Azure/Bookworm Query Engine was stripped somehow.
+RUN test -f node_modules/.prisma/client/libquery_engine-debian-openssl-3.0.x.so.node
 USER nest
 EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
