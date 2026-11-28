@@ -26,6 +26,10 @@ enum EnrollmentStatus {
   WITHDRAWN
   COMPLETED
 }
+enum CourseResultStatus {
+  CALCULATED
+  INCOMPLETE
+}
 enum AttendanceStatus {
   PRESENT
   ABSENT
@@ -105,6 +109,7 @@ model Student {
   attendance AttendanceRecord[]
   scores AssessmentScore[]
   summaries AcademicSummary[]
+  courseResults CourseResult[]
   predictions Prediction[]
   alerts RiskAlert[]
   @@index([departmentId, status])
@@ -149,6 +154,7 @@ model AcademicTerm {
   active Boolean @default(false)
   offerings CourseOffering[]
   summaries AcademicSummary[]
+  courseResults CourseResult[]
   predictions Prediction[]
   alerts RiskAlert[]
   @@index([academicYear, startsAt])
@@ -163,6 +169,7 @@ model Course {
   active Boolean @default(true)
   department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   offerings CourseOffering[]
+  courseResults CourseResult[]
   @@unique([departmentId, code])
   @@index([departmentId, active])
 }
@@ -179,6 +186,7 @@ model CourseOffering {
   enrollments Enrollment[]
   attendance AttendanceRecord[]
   assessments Assessment[]
+  courseResults CourseResult[]
   @@unique([courseId, termId, section])
   @@index([teacherId, termId])
 }
@@ -191,6 +199,7 @@ model Enrollment {
   enrolledAt DateTime @default(now()) @db.Timestamptz(6)
   student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
   offering CourseOffering @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+  courseResult CourseResult?
   @@unique([studentId, offeringId])
   @@index([offeringId, status])
 }
@@ -244,7 +253,13 @@ model AcademicSummary {
   id String @id @default(uuid()) @db.Uuid
   studentId String @db.Uuid
   termId String @db.Uuid
+  /// Semester GPA from credit-weighted course grade points. Null when a completed course in the term has no calculated result.
   gpa Decimal? @db.Decimal(4, 2)
+  /// Cumulative CGPA of completed courses as of this term. Null when withheld; see cgpaBlockReason.
+  cgpa Decimal? @db.Decimal(4, 2)
+  /// Why CGPA was withheld. RETAKE_POLICY_UNCONFIGURED means repeated attempts exist and no replacement rule is configured.
+  cgpaBlockReason String? @db.VarChar(80)
+  /// Kept separate from GPA and CGPA. Grading does not read or write this column.
   attendancePercent Decimal? @db.Decimal(5, 2)
   assessmentAverage Decimal? @db.Decimal(6, 2)
   calculatedAt DateTime @default(now()) @db.Timestamptz(6)
@@ -253,6 +268,30 @@ model AcademicSummary {
   term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
   @@unique([studentId, termId, calculationVersion])
   @@index([termId, calculatedAt])
+}
+
+model CourseResult {
+  id String @id @default(uuid()) @db.Uuid
+  enrollmentId String @unique @db.Uuid
+  studentId String @db.Uuid
+  courseId String @db.Uuid
+  offeringId String @db.Uuid
+  termId String @db.Uuid
+  percentage Decimal? @db.Decimal(6, 2)
+  letterGrade String? @db.VarChar(4)
+  gradePoint Decimal? @db.Decimal(3, 2)
+  credits Decimal @db.Decimal(5, 2)
+  status CourseResultStatus
+  incompleteReason String? @db.VarChar(80)
+  calculationVersion String @db.VarChar(40)
+  calculatedAt DateTime @default(now()) @db.Timestamptz(6)
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  offering CourseOffering @relation(fields: [offeringId], references: [id], onDelete: Restrict)
+  term AcademicTerm @relation(fields: [termId], references: [id], onDelete: Restrict)
+  @@index([studentId, termId])
+  @@index([studentId, courseId])
 }
 
 model ModelVersion {

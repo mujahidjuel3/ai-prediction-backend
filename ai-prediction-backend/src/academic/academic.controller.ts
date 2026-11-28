@@ -1,12 +1,13 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsBoolean, IsDateString, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { Role } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
 import { pageQuery } from '../common/pagination';
+import { GradingService } from './grading.service';
 
 class TermDto {
   @IsString() @MinLength(2) @MaxLength(40) code!: string;
@@ -25,9 +26,19 @@ class TermUpdateDto {
   @IsOptional() @IsBoolean() active?: boolean;
 }
 
+export class RecalculateGradesDto {
+  @IsUUID() termId!: string;
+  @IsOptional() @IsUUID() studentId?: string;
+}
+
 @ApiTags('academic') @UseGuards(JwtAuthGuard) @Controller()
 export class AcademicController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private grading: GradingService) {}
+
+  @Roles(Role.ADMIN) @Post('grades/recalculate')
+  async recalculateGrades(@Body() dto: RecalculateGradesDto) {
+    return { data: await this.grading.recalculateForTerm(dto.termId, dto.studentId) };
+  }
 
   @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT) @Get('terms')
   async terms(@Query('page') p?: string, @Query('pageSize') s?: string) {
