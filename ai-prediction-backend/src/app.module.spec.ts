@@ -1,3 +1,9 @@
+process.env.NODE_ENV = 'test';
+process.env.DATABASE_URL = 'postgresql://test:test@localhost/test';
+process.env.JWT_ACCESS_SECRET = 'x'.repeat(32);
+process.env.CORS_ORIGINS = 'http://localhost:3000';
+process.env.ML_SERVICE_TOKEN = 'y'.repeat(32);
+
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { INestApplication, ValidationPipe } from '@nestjs/common';

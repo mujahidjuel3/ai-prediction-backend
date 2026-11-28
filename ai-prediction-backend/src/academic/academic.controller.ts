@@ -6,6 +6,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
+import { AcademicSummaryService } from './academic-summary.service';
 import { pageQuery } from '../common/pagination';
 
 class TermDto {
@@ -27,7 +28,16 @@ class TermUpdateDto {
 
 @ApiTags('academic') @UseGuards(JwtAuthGuard) @Controller()
 export class AcademicController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private summaryService: AcademicSummaryService,
+  ) {}
+
+  @Roles(Role.ADMIN)
+  @Post('summaries/recalculate')
+  async recalculateSummaries(@Query('termId') termId?: string) {
+    return { data: await this.summaryService.recalculate(termId) };
+  }
 
   @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT) @Get('terms')
   async terms(@Query('page') p?: string, @Query('pageSize') s?: string) {

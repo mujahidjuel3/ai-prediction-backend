@@ -10,7 +10,7 @@ describe('AcademicController course catalog', () => {
         count: jest.fn().mockResolvedValue(1),
       },
     };
-    const controller = new AcademicController(prisma as never);
+    const controller = new AcademicController(prisma as never, { recalculate: jest.fn() } as never);
 
     await expect(controller.courseCatalog({ id: 'admin-user', role: 'ADMIN' } as never, '1', '20')).resolves.toEqual({
       data: [course],
@@ -24,7 +24,7 @@ describe('AcademicController course catalog', () => {
       $transaction: jest.fn(async ([rows]: [Promise<unknown>, Promise<number>]) => Promise.all([rows, Promise.resolve(0)])),
       course: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     };
-    const controller = new AcademicController(prisma as never);
+    const controller = new AcademicController(prisma as never, { recalculate: jest.fn() } as never);
 
     await controller.courseCatalog({ id: 'teacher-user', role: 'TEACHER' } as never, undefined, undefined, 'department-uuid');
 
@@ -49,7 +49,7 @@ describe('AcademicController course catalog', () => {
         update: jest.fn().mockResolvedValue({ ...current, label: 'Spring Term 2026', active: true }),
       },
     };
-    const controller = new AcademicController(prisma as never);
+    const controller = new AcademicController(prisma as never, { recalculate: jest.fn() } as never);
     await expect(controller.updateTerm('term-1', { label: 'Spring Term 2026', active: true })).resolves.toEqual({
       data: { ...current, label: 'Spring Term 2026', active: true },
     });
