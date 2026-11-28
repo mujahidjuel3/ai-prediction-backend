@@ -105,15 +105,15 @@ export const environmentSchema = Joi.object({
   EMAIL_POLICY_APPROVED: Joi.boolean().default(false),
   /** Outbound transport master switch. Still requires EMAIL_POLICY_APPROVED=true to enable. */
   SMTP_ENABLED: Joi.boolean().default(false).when('EMAIL_POLICY_APPROVED', { is: false, then: Joi.valid(false) }),
-  /** smtp = Nodemailer (default, local-compatible). brevo = Brevo Transactional Email API. */
-  EMAIL_PROVIDER: Joi.string().valid('smtp', 'brevo').default('smtp'),
+  /** smtp = Nodemailer (default). brevo = Brevo API. resend = Resend SDK. */
+  EMAIL_PROVIDER: Joi.string().valid('smtp', 'brevo', 'resend').default('smtp'),
   SMTP_HOST: Joi.string().hostname().default('smtp.gmail.com'),
   SMTP_PORT: Joi.number().port().default(465),
   SMTP_SECURE: Joi.boolean().default(true),
   SMTP_USER: Joi.when('SMTP_ENABLED', {
     is: true,
     then: Joi.when('EMAIL_PROVIDER', {
-      is: 'brevo',
+      is: Joi.valid('brevo', 'resend'),
       then: Joi.string().email().allow('').optional(),
       otherwise: Joi.string().email().required(),
     }),
@@ -126,13 +126,16 @@ export const environmentSchema = Joi.object({
   SMTP_FROM: Joi.when('SMTP_ENABLED', {
     is: true,
     then: Joi.when('EMAIL_PROVIDER', {
-      is: 'brevo',
+      is: Joi.valid('brevo', 'resend'),
       then: Joi.string().email().allow('').optional(),
       otherwise: Joi.string().email().required(),
     }),
     otherwise: Joi.string().allow('').optional(),
   }),
   SMTP_FROM_NAME: Joi.string().allow('').default('Academic Sentinel'),
+  /** Resend sender. Defaults to Academic Sentinel <admin@academicsentinel.live>. */
+  EMAIL_FROM: Joi.string().max(320).allow('').default('Academic Sentinel <admin@academicsentinel.live>'),
+  RESEND_API_KEY: Joi.string().allow('').optional(),
   BREVO_API_KEY: Joi.string().allow('').optional(),
   BREVO_SENDER_EMAIL: Joi.string().email().allow('').optional(),
   BREVO_SENDER_NAME: Joi.string().max(160).allow('').default('Academic Sentinel'),
@@ -153,6 +156,12 @@ export const environmentSchema = Joi.object({
     }
     if (!value.BREVO_SENDER_EMAIL) {
       return helpers.error('any.custom', { message: 'BREVO_SENDER_EMAIL is required when EMAIL_PROVIDER=brevo and SMTP_ENABLED=true' });
+    }
+    return value;
+  }
+  if (value.EMAIL_PROVIDER === 'resend') {
+    if (!value.RESEND_API_KEY) {
+      return helpers.error('any.custom', { message: 'RESEND_API_KEY is required when EMAIL_PROVIDER=resend and SMTP_ENABLED=true' });
     }
     return value;
   }

@@ -79,20 +79,27 @@ export class WorkflowsController {
  @Roles(Role.ADMIN,Role.TEACHER) @Post('predictions/:id/reviews') async review(@Param('id') id:string,@Body() dto:ReviewDto,@CurrentUser() actor:AuthUser){const pred=await this.prisma.prediction.findUnique({where:{id},select:{id:true,studentId:true}});if(!pred)throw new NotFoundException('Prediction not found');if(actor.role==='TEACHER'){const allowed=await this.prisma.courseOffering.count({where:{teacher:{userId:actor.id},enrollments:{some:{studentId:pred.studentId,status:'ENROLLED'}}}});if(!allowed)throw new ForbiddenException('Prediction is outside assigned courses');}return{data:await this.prisma.$transaction(async tx=>{const review=await tx.predictionReview.create({data:{predictionId:id,reviewerId:actor.id,outcome:dto.outcome,rationale:dto.rationale}});await tx.auditLog.create({data:{actorId:actor.id,action:'PREDICTION_REVIEW',entityType:'Prediction',entityId:id,changes:{outcome:dto.outcome}}});return review;})};}
  @Get('notifications') async notifications(@CurrentUser() actor:AuthUser,@Query('unread') unread?:string,@Query('page') p?:string,@Query('pageSize') s?:string){const pg=pageQuery(p,s);const where={recipientId:actor.id,inAppVisible:true,...(unread==='true'?{readAt:null}:{})};const [data,total]=await this.prisma.$transaction([this.prisma.notification.findMany({where,skip:pg.skip,take:pg.pageSize,orderBy:{createdAt:'desc'}}),this.prisma.notification.count({where})]);return{data,meta:{page:pg.page,pageSize:pg.pageSize,total,totalPages:Math.ceil(total/pg.pageSize)}};}
  @Roles(Role.ADMIN) @Get('notifications/email/controls') async emailControls(){
-  const provider=((process.env.EMAIL_PROVIDER||'smtp').toLowerCase()==='brevo')?'brevo':'smtp';
+  const providerConfig=this.notificationEmail.providerConfiguration();
   const allowlist=this.testEmailAllowlist();
   return{data:{
-    emailPolicyApproved:this.configFlag('EMAIL_POLICY_APPROVED'),
-    smtpEnabled:this.configFlag('SMTP_ENABLED'),
-    emailProvider:provider,
+    emailPolicyApproved:providerConfig.emailPolicyApproved,
+    smtpEnabled:providerConfig.smtpEnabled,
+    emailProvider:providerConfig.provider,
+    providerConfigured:providerConfig.configured,
+    fromAddressConfigured:providerConfig.fromAddressConfigured,
+    canSend:providerConfig.canSend,
     workerEnabled:this.configFlag('EMAIL_WORKER_ENABLED',true),
     workerAutoRetry:this.configFlag('EMAIL_WORKER_AUTO_RETRY'),
     automatedRiskAlertEmailEnabled:false,
-    testEmailEnabled:allowlist.length>0&&this.configFlag('EMAIL_POLICY_APPROVED')&&this.configFlag('SMTP_ENABLED'),
+    testEmailEnabled:allowlist.length>0&&providerConfig.canSend,
     testRecipientCount:allowlist.length,
     testRecipientsMasked:allowlist.map((email)=>this.maskEmail(email)),
-    disclaimer:'SMTP_ACCEPTED means provider acceptance only (SMTP or Brevo). Automated ML risk-alert email remains disabled. Test emails only reach EMAIL_TEST_RECIPIENTS allowlist.',
+    disclaimer:'SMTP_ACCEPTED means provider acceptance only (SMTP, Brevo, or Resend). Automated ML risk-alert email remains disabled. Test emails only reach EMAIL_TEST_RECIPIENTS allowlist.',
   }};
+ }
+ /** Admin configuration probe. Verifies provider settings without sending email. */
+ @Roles(Role.ADMIN) @Get('notifications/email/provider') async emailProviderStatus(){
+  return{data:this.notificationEmail.providerConfiguration()};
  }
  /**
   * Admin-triggered test email to an explicitly allowlisted recipient only.

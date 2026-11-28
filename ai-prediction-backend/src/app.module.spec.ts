@@ -23,7 +23,7 @@ describe('AppModule authentication wiring', () => {
     expect(environmentSchema.validate({ ...base, SMTP_ENABLED: true, EMAIL_POLICY_APPROVED: true, SMTP_USER: 'sender@example.com', SMTP_PASSWORD: 'legacy-test-password', SMTP_FROM: 'sender@example.com' }).error).toBeUndefined();
   });
 
-  it('defaults EMAIL_PROVIDER to smtp and requires Brevo credentials only when provider=brevo and transport is enabled', () => {
+  it('defaults EMAIL_PROVIDER to smtp and requires provider credentials only when transport is enabled', () => {
     const base = {
       NODE_ENV: 'test',
       DATABASE_URL: 'postgresql://test:test@localhost/test',
@@ -44,6 +44,17 @@ describe('AppModule authentication wiring', () => {
       EMAIL_PROVIDER: 'brevo',
       BREVO_API_KEY: 'synthetic-brevo-key',
       BREVO_SENDER_EMAIL: 'noreply@example.com',
+    }).error).toBeUndefined();
+    expect(environmentSchema.validate({
+      ...base,
+      SMTP_ENABLED: true,
+      EMAIL_PROVIDER: 'resend',
+    }).error).toBeDefined();
+    expect(environmentSchema.validate({
+      ...base,
+      SMTP_ENABLED: true,
+      EMAIL_PROVIDER: 'resend',
+      RESEND_API_KEY: 're_synthetic_key',
     }).error).toBeUndefined();
     expect(environmentSchema.validate({
       ...base,

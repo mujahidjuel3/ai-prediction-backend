@@ -3,22 +3,45 @@ import { ConfigService } from '@nestjs/config';
 import { EmailDeliveryStatus, Prisma } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
+import { Resend } from 'resend';
 import { PrismaService } from '../prisma/prisma.module';
 
 export const MAIL_TRANSPORT_FACTORY = Symbol('MAIL_TRANSPORT_FACTORY');
 export const MAIL_RETRY_DELAY = Symbol('MAIL_RETRY_DELAY');
 export const BREVO_FETCH = Symbol('BREVO_FETCH');
+export const RESEND_CLIENT_FACTORY = Symbol('RESEND_CLIENT_FACTORY');
 
 export type MailTransport = Pick<nodemailer.Transporter, 'sendMail'>;
 export type MailTransportFactory = (options: SMTPTransport.Options) => MailTransport;
 export type BrevoFetch = typeof fetch;
+export type ResendSendPayload = {
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+};
+export type ResendSendResult = { data: { id: string } | null; error: { message: string; name?: string; statusCode?: number } | null };
+export type ResendClient = { emails: { send: (payload: ResendSendPayload) => Promise<ResendSendResult> } };
+export type ResendClientFactory = (apiKey: string) => ResendClient;
+
+function createOfficialResendClient(apiKey: string): ResendClient {
+  const client = new Resend(apiKey);
+  return {
+    emails: {
+      send: (payload) => client.emails.send(payload) as Promise<ResendSendResult>,
+    },
+  };
+}
 type Delay = (milliseconds: number) => Promise<void>;
-type EmailProvider = 'smtp' | 'brevo';
+export type EmailProvider = 'smtp' | 'brevo' | 'resend';
 
 const publicFields = { id: true, status: true, attemptCount: true, providerMessageId: true, lastErrorCode: true, acceptedAt: true } as const;
 const smtpRetryableCodes = new Set(['ECONNECTION', 'ECONNRESET', 'ETIMEDOUT', 'ESOCKET', 'EAI_AGAIN', 'ETLS']);
 const brevoRetryableCodes = new Set(['BREVO_429', 'BREVO_5XX', 'BREVO_TIMEOUT', 'BREVO_NETWORK', 'ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN']);
+const resendRetryableCodes = new Set(['RESEND_429', 'RESEND_5XX', 'RESEND_TIMEOUT', 'RESEND_NETWORK', 'ETIMEDOUT', 'ECONNRESET', 'EAI_AGAIN']);
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
+const DEFAULT_EMAIL_FROM = 'Academic Sentinel <admin@academicsentinel.live>';
 
 class ProviderSendError extends Error {
   constructor(
@@ -41,12 +64,34 @@ export class NotificationEmailService {
     @Inject(MAIL_TRANSPORT_FACTORY) private readonly createTransport: MailTransportFactory,
     @Optional() @Inject(MAIL_RETRY_DELAY) private readonly delay: Delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
     @Optional() @Inject(BREVO_FETCH) private readonly brevoFetch: BrevoFetch = fetch,
+    @Optional() @Inject(RESEND_CLIENT_FACTORY) private readonly createResendClient: ResendClientFactory = createOfficialResendClient,
   ) {}
 
   async status(notificationId: string) {
     const delivery = await this.prisma.notificationEmailDelivery.findUnique({ where: { notificationId }, select: publicFields });
     if (!delivery) throw new NotFoundException('Email delivery record not found');
     return delivery;
+  }
+
+  /**
+   * Configuration probe for Admin diagnostics. Does not send email and never returns secrets.
+   */
+  providerConfiguration() {
+    const provider = this.resolveProvider();
+    const emailPolicyApproved = this.config.get<boolean>('EMAIL_POLICY_APPROVED') === true;
+    const smtpEnabled = this.config.get<boolean>('SMTP_ENABLED') === true;
+    const configured = this.isProviderConfigured(provider);
+    return {
+      provider,
+      emailPolicyApproved,
+      smtpEnabled,
+      configured,
+      fromAddressConfigured: Boolean(this.resolveFromAddress(provider)),
+      canSend: emailPolicyApproved && smtpEnabled && configured,
+      automatedRiskAlertEmailEnabled: false,
+      disclaimer:
+        'Configuration check only; no email was sent. SMTP_ACCEPTED means provider acceptance only. Automated ML risk-alert email remains disabled.',
+    };
   }
 
   async dispatch(notificationId: string, explicitRetry = false) {
@@ -91,21 +136,20 @@ export class NotificationEmailService {
 
     const recipient = delivery.notification.recipient;
     const maxAttempts = this.config.get<number>('EMAIL_MAX_ATTEMPTS') ?? 3;
-    let lastCode = provider === 'brevo' ? 'BREVO_ERROR' : 'SMTP_ERROR';
+    let lastCode = this.defaultErrorCode(provider);
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       await this.prisma.notificationEmailDelivery.update({ where: { id: delivery.id }, data: { attemptCount: attempt } });
       try {
-        const providerMessageId = provider === 'brevo'
-          ? await this.sendViaBrevo({
-              to: recipient.email,
-              subject: delivery.notification.title,
-              text: delivery.notification.message,
-            })
-          : await this.sendViaSmtp({
-              to: recipient.email,
-              subject: delivery.notification.title,
-              text: delivery.notification.message,
-            });
+        const payload = {
+          to: recipient.email,
+          subject: delivery.notification.title,
+          text: delivery.notification.message,
+        };
+        const providerMessageId = provider === 'resend'
+          ? await this.sendViaResend(payload)
+          : provider === 'brevo'
+            ? await this.sendViaBrevo(payload)
+            : await this.sendViaSmtp(payload);
 
         const accepted = await this.update(delivery.id, {
           status: EmailDeliveryStatus.SMTP_ACCEPTED,
@@ -277,6 +321,60 @@ export class NotificationEmailService {
     return typeof messageId === 'string' && messageId.trim() ? messageId.trim() : null;
   }
 
+  private async sendViaResend(input: { to: string; subject: string; text: string }) {
+    const apiKey = this.config.get<string>('RESEND_API_KEY');
+    if (!apiKey) {
+      throw new ProviderSendError('RESEND_CONFIG', 'Resend configuration is incomplete', false);
+    }
+    const from = this.resolveFromAddress('resend');
+    if (!from) {
+      throw new ProviderSendError('RESEND_CONFIG', 'Resend sender address is not configured', false);
+    }
+    let result: ResendSendResult;
+    try {
+      const client = this.createResendClient(apiKey);
+      result = await client.emails.send({
+        from,
+        to: input.to,
+        subject: input.subject,
+        text: input.text,
+        html: this.toSafeHtml(input.text),
+      });
+    } catch (cause) {
+      if (cause instanceof Error && (cause.name === 'AbortError' || /timeout|aborted/i.test(cause.message))) {
+        throw new ProviderSendError('RESEND_TIMEOUT', 'Resend request timed out', true);
+      }
+      throw new ProviderSendError('RESEND_NETWORK', 'Resend network failure', true);
+    }
+
+    if (result.error) {
+      const statusCode = typeof result.error.statusCode === 'number' ? result.error.statusCode : 0;
+      if (statusCode === 401 || statusCode === 403) {
+        throw new ProviderSendError(`RESEND_${statusCode}`, 'Resend authentication failed', false);
+      }
+      if (statusCode === 400 || statusCode === 422) {
+        throw new ProviderSendError('RESEND_400', 'Resend rejected the request', false);
+      }
+      if (statusCode === 429) {
+        throw new ProviderSendError('RESEND_429', 'Resend rate limited the request', true);
+      }
+      if (statusCode >= 500) {
+        throw new ProviderSendError('RESEND_5XX', 'Resend provider error', true);
+      }
+      const name = typeof result.error.name === 'string' ? result.error.name : '';
+      if (/rate.?limit/i.test(name) || /rate.?limit/i.test(result.error.message)) {
+        throw new ProviderSendError('RESEND_429', 'Resend rate limited the request', true);
+      }
+      throw new ProviderSendError('RESEND_ERROR', 'Resend request failed', false);
+    }
+
+    const messageId = result.data?.id;
+    if (!messageId || typeof messageId !== 'string' || !messageId.trim()) {
+      throw new ProviderSendError('RESEND_INVALID_RESPONSE', 'Resend response did not include id', false);
+    }
+    return messageId.trim();
+  }
+
   private toSafeHtml(text: string) {
     const escaped = text
       .replace(/&/g, '&amp;')
@@ -289,7 +387,42 @@ export class NotificationEmailService {
 
   private resolveProvider(): EmailProvider {
     const raw = (this.config.get<string>('EMAIL_PROVIDER') || 'smtp').toLowerCase();
-    return raw === 'brevo' ? 'brevo' : 'smtp';
+    if (raw === 'brevo') return 'brevo';
+    if (raw === 'resend') return 'resend';
+    return 'smtp';
+  }
+
+  private isProviderConfigured(provider: EmailProvider): boolean {
+    if (provider === 'resend') return Boolean(this.config.get<string>('RESEND_API_KEY'));
+    if (provider === 'brevo') {
+      return Boolean(this.config.get<string>('BREVO_API_KEY') && this.config.get<string>('BREVO_SENDER_EMAIL'));
+    }
+    return Boolean(
+      this.config.get<string>('SMTP_USER')
+      && this.config.get<string>('SMTP_FROM')
+      && (this.config.get<string>('SMTP_PASS') || this.config.get<string>('SMTP_PASSWORD')),
+    );
+  }
+
+  private resolveFromAddress(provider: EmailProvider): string | null {
+    if (provider === 'resend') {
+      const from = (this.config.get<string>('EMAIL_FROM') || DEFAULT_EMAIL_FROM).trim();
+      return from || null;
+    }
+    if (provider === 'brevo') {
+      const email = this.config.get<string>('BREVO_SENDER_EMAIL');
+      if (!email) return null;
+      const name = (this.config.get<string>('BREVO_SENDER_NAME') || 'Academic Sentinel').trim() || 'Academic Sentinel';
+      return email.includes('<') ? email : `"${name.replace(/["\\]/g, '')}" <${email}>`;
+    }
+    const from = this.config.get<string>('SMTP_FROM');
+    return from ? this.formatSmtpFromAddress() : null;
+  }
+
+  private defaultErrorCode(provider: EmailProvider) {
+    if (provider === 'resend') return 'RESEND_ERROR';
+    if (provider === 'brevo') return 'BREVO_ERROR';
+    return 'SMTP_ERROR';
   }
 
   private update(id: string, data: Prisma.NotificationEmailDeliveryUpdateInput) {
@@ -316,9 +449,10 @@ export class NotificationEmailService {
 
   private safeErrorCode(cause: unknown, provider: EmailProvider) {
     if (cause instanceof ProviderSendError) return cause.code;
-    if (!cause || typeof cause !== 'object') return provider === 'brevo' ? 'BREVO_ERROR' : 'SMTP_ERROR';
-    const code = 'code' in cause ? String(cause.code) : provider === 'brevo' ? 'BREVO_ERROR' : 'SMTP_ERROR';
-    return /^[A-Z0-9_-]{1,120}$/.test(code) ? code : provider === 'brevo' ? 'BREVO_ERROR' : 'SMTP_ERROR';
+    const fallback = this.defaultErrorCode(provider);
+    if (!cause || typeof cause !== 'object') return fallback;
+    const code = 'code' in cause ? String(cause.code) : fallback;
+    return /^[A-Z0-9_-]{1,120}$/.test(code) ? code : fallback;
   }
 
   private isTransient(cause: unknown, provider: EmailProvider) {
@@ -326,6 +460,7 @@ export class NotificationEmailService {
     if (!cause || typeof cause !== 'object') return false;
     const code = 'code' in cause ? String(cause.code) : '';
     if (provider === 'brevo') return brevoRetryableCodes.has(code);
+    if (provider === 'resend') return resendRetryableCodes.has(code);
     const responseCode = 'responseCode' in cause ? Number(cause.responseCode) : 0;
     return smtpRetryableCodes.has(code) || (responseCode >= 400 && responseCode < 500);
   }
@@ -339,4 +474,9 @@ export const mailTransportFactoryProvider = {
 export const brevoFetchProvider = {
   provide: BREVO_FETCH,
   useValue: fetch,
+};
+
+export const resendClientFactoryProvider = {
+  provide: RESEND_CLIENT_FACTORY,
+  useValue: createOfficialResendClient,
 };

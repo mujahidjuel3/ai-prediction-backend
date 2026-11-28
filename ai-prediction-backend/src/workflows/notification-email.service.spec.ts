@@ -1,6 +1,13 @@
 import { ConfigService } from '@nestjs/config';
 import { EmailDeliveryStatus } from '@prisma/client';
-import { NotificationEmailService, MailTransportFactory, BrevoFetch } from './notification-email.service';
+import {
+  NotificationEmailService,
+  MailTransportFactory,
+  BrevoFetch,
+  ResendClientFactory,
+  ResendSendPayload,
+  ResendSendResult,
+} from './notification-email.service';
 
 const notificationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const deliveryId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -10,8 +17,12 @@ function setup(options: {
   emailOptIn?: boolean;
   sendMail?: jest.Mock;
   passKey?: 'SMTP_PASS' | 'SMTP_PASSWORD';
-  provider?: 'smtp' | 'brevo';
+  provider?: 'smtp' | 'brevo' | 'resend';
   brevoFetch?: jest.MockedFunction<BrevoFetch>;
+  resendSend?: jest.Mock;
+  resendApiKey?: string;
+  emailFrom?: string;
+  emailPolicyApproved?: boolean;
 } = {}) {
   const sendMail = options.sendMail ?? jest.fn().mockResolvedValue({ messageId: 'smtp-message-id', accepted: ['test@example.test'] });
   let row: Record<string, unknown> = {
@@ -36,6 +47,7 @@ function setup(options: {
   const passKey = options.passKey ?? 'SMTP_PASS';
   const configValues: Record<string, unknown> = {
     EMAIL_PROVIDER: options.provider ?? 'smtp',
+    EMAIL_POLICY_APPROVED: options.emailPolicyApproved ?? true,
     SMTP_ENABLED: options.enabled ?? true, SMTP_HOST: 'smtp.gmail.com', SMTP_PORT: 465,
     SMTP_SECURE: true, SMTP_USER: 'sender@example.test', SMTP_FROM: 'sender@example.test',
     SMTP_FROM_NAME: 'Academic Sentinel Test', EMAIL_MAX_ATTEMPTS: 3,
@@ -45,6 +57,8 @@ function setup(options: {
     BREVO_SENDER_EMAIL: 'noreply@example.test',
     BREVO_SENDER_NAME: 'Academic Sentinel Brevo',
     BREVO_TIMEOUT_MS: 5_000,
+    RESEND_API_KEY: options.resendApiKey ?? 're_test_key_not_real',
+    EMAIL_FROM: options.emailFrom ?? 'Academic Sentinel <admin@academicsentinel.live>',
   };
   const config = { get: (key: string) => configValues[key], getOrThrow: (key: string) => {
     const value = configValues[key];
@@ -53,8 +67,14 @@ function setup(options: {
   } } as unknown as ConfigService;
   const factory = jest.fn<ReturnType<MailTransportFactory>, Parameters<MailTransportFactory>>(() => ({ sendMail }));
   const brevoFetch = options.brevoFetch ?? (jest.fn() as jest.MockedFunction<BrevoFetch>);
-  const service = new NotificationEmailService(config, prisma as never, factory, async () => undefined, brevoFetch);
-  return { service, prisma, factory, sendMail, brevoFetch, setRow: (value: Record<string, unknown>) => { row = value; } };
+  const resendSend = options.resendSend
+    ?? jest.fn<Promise<ResendSendResult>, [ResendSendPayload]>().mockResolvedValue({ data: { id: 'resend-message-id' }, error: null });
+  const createResend: ResendClientFactory = jest.fn((apiKey: string) => {
+    expect(apiKey).toBeTruthy();
+    return { emails: { send: resendSend } };
+  });
+  const service = new NotificationEmailService(config, prisma as never, factory, async () => undefined, brevoFetch, createResend);
+  return { service, prisma, factory, sendMail, brevoFetch, resendSend, createResend, setRow: (value: Record<string, unknown>) => { row = value; } };
 }
 
 function jsonResponse(status: number, body: unknown) {
@@ -311,6 +331,106 @@ describe('NotificationEmailService', () => {
       const result = await context.service.dispatch(notificationId);
       expect(result.status).toBe(EmailDeliveryStatus.SKIPPED_DISABLED);
       expect(brevoFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Resend provider', () => {
+    it('maps a successful Resend response to SMTP_ACCEPTED using EMAIL_FROM and never logs the API key', async () => {
+      const context = setup({ provider: 'resend' });
+      const result = await context.service.dispatch(notificationId);
+      expect(result.status).toBe(EmailDeliveryStatus.SMTP_ACCEPTED);
+      expect(result.providerMessageId).toBe('resend-message-id');
+      expect(context.factory).not.toHaveBeenCalled();
+      expect(context.brevoFetch).not.toHaveBeenCalled();
+      expect(context.createResend).toHaveBeenCalledWith('re_test_key_not_real');
+      expect(context.resendSend).toHaveBeenCalledWith(expect.objectContaining({
+        from: 'Academic Sentinel <admin@academicsentinel.live>',
+        to: 'test@example.test',
+        subject: 'Manual notice',
+        text: 'Synthetic test message',
+        html: expect.stringContaining('Synthetic test message'),
+      }));
+      expect(JSON.stringify(context.prisma.auditLog.create.mock.calls)).not.toContain('re_test_key_not_real');
+      expect(context.prisma.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'EMAIL_SMTP_ACCEPTED',
+          changes: expect.objectContaining({ provider: 'resend' }),
+        }),
+      }));
+    });
+
+    it('treats Resend 401 as non-retryable failure', async () => {
+      const resendSend = jest.fn().mockResolvedValue({
+        data: null,
+        error: { message: 'unauthorized', statusCode: 401 },
+      });
+      const context = setup({ provider: 'resend', resendSend });
+      const result = await context.service.dispatch(notificationId);
+      expect(resendSend).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe(EmailDeliveryStatus.FAILED);
+      expect(result.lastErrorCode).toBe('RESEND_401');
+    });
+
+    it('retries Resend 429 then accepts', async () => {
+      const resendSend = jest.fn()
+        .mockResolvedValueOnce({ data: null, error: { message: 'rate limited', statusCode: 429 } })
+        .mockResolvedValueOnce({ data: { id: 'resend-after-retry' }, error: null });
+      const context = setup({ provider: 'resend', resendSend });
+      const result = await context.service.dispatch(notificationId);
+      expect(resendSend).toHaveBeenCalledTimes(2);
+      expect(result.status).toBe(EmailDeliveryStatus.SMTP_ACCEPTED);
+      expect(result.providerMessageId).toBe('resend-after-retry');
+    });
+
+    it('retries Resend 5xx then fails after max attempts', async () => {
+      const resendSend = jest.fn().mockResolvedValue({
+        data: null,
+        error: { message: 'unavailable', statusCode: 503 },
+      });
+      const context = setup({ provider: 'resend', resendSend });
+      const result = await context.service.dispatch(notificationId);
+      expect(resendSend).toHaveBeenCalledTimes(3);
+      expect(result.status).toBe(EmailDeliveryStatus.FAILED);
+      expect(result.lastErrorCode).toBe('RESEND_5XX');
+    });
+
+    it('fails when Resend is missing an id', async () => {
+      const resendSend = jest.fn().mockResolvedValue({ data: {}, error: null });
+      const context = setup({ provider: 'resend', resendSend });
+      const result = await context.service.dispatch(notificationId);
+      expect(result.status).toBe(EmailDeliveryStatus.FAILED);
+      expect(result.lastErrorCode).toBe('RESEND_INVALID_RESPONSE');
+    });
+
+    it('skips Resend when transport is disabled', async () => {
+      const resendSend = jest.fn();
+      const context = setup({ provider: 'resend', enabled: false, resendSend });
+      const result = await context.service.dispatch(notificationId);
+      expect(result.status).toBe(EmailDeliveryStatus.SKIPPED_DISABLED);
+      expect(resendSend).not.toHaveBeenCalled();
+    });
+
+    it('reports provider configuration without sending mail or exposing secrets', () => {
+      const context = setup({ provider: 'resend', enabled: true, emailPolicyApproved: true });
+      const probe = context.service.providerConfiguration();
+      expect(probe).toEqual(expect.objectContaining({
+        provider: 'resend',
+        emailPolicyApproved: true,
+        smtpEnabled: true,
+        configured: true,
+        fromAddressConfigured: true,
+        canSend: true,
+        automatedRiskAlertEmailEnabled: false,
+      }));
+      expect(JSON.stringify(probe)).not.toContain('re_test_key_not_real');
+      expect(context.resendSend).not.toHaveBeenCalled();
+    });
+
+    it('marks Resend unconfigured when API key is absent', () => {
+      const context = setup({ provider: 'resend', resendApiKey: '' });
+      const probe = context.service.providerConfiguration();
+      expect(probe.configured).toBe(false);
+      expect(probe.canSend).toBe(false);
     });
   });
 });
