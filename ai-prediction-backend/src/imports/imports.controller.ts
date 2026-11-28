@@ -8,6 +8,14 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
 import { parseCsv } from './csv';
+import {
+  STUDENT_CSV_REQUIRED,
+  col as studentCol,
+  isStudentImportPayload,
+  parseStudentCsvTable,
+  validateStudentImportRows,
+  type StudentImportRow,
+} from './student-import';
 
 const REQUIRED=['student_number','course_code','term_code','section','record_type','record_date','attendance_status','assessment_name','assessment_kind','max_score','weight','score'];
 const MAX_BYTES=5*1024*1024,MAX_ROWS=500;
@@ -18,6 +26,67 @@ class CommitDto{@IsOptional() @IsBoolean() acknowledgeInvalidRows?:boolean;}
 @ApiTags('imports') @UseGuards(JwtAuthGuard) @Roles(Role.ADMIN) @Controller('imports')
 export class ImportsController{
  constructor(private prisma:PrismaService){}
+
+ /** Student roster CSV — headers match Reports student-directory export. Creates profiles without login accounts. */
+ @Post('students/preview') async previewStudents(@Body() dto:PreviewDto,@Headers('idempotency-key') key:string|undefined,@CurrentUser() actor:AuthUser){
+  if(Buffer.byteLength(dto.csv,'utf8')>MAX_BYTES)throw new BadRequestException('CSV is larger than 5 MB');
+  if(!key||key.length>120)throw new BadRequestException('Provide an Idempotency-Key header (maximum 120 characters)');
+  const hash=createHash('sha256').update(`students:${dto.csv}`).digest('hex');
+  let headers:string[]; let raw:string[][];
+  try{({headers,raw}=parseStudentCsvTable(dto.csv));}catch(e){throw new BadRequestException(e instanceof Error?e.message:'Invalid CSV');}
+  const studentNumbers=raw.map(r=>studentCol(r,headers,'student_number')).filter(Boolean);
+  const emails=raw.map(r=>studentCol(r,headers,'email').trim().toLowerCase()).filter(Boolean);
+  const [departments,existingByNumber,existingUsers,existingProfileEmails]=await Promise.all([
+   this.prisma.department.findMany({select:{id:true,code:true}}),
+   studentNumbers.length?this.prisma.student.findMany({where:{studentNumber:{in:studentNumbers}},select:{studentNumber:true}}):Promise.resolve([]),
+   emails.length?this.prisma.user.findMany({where:{email:{in:emails}},select:{email:true}}):Promise.resolve([]),
+   emails.length?this.prisma.student.findMany({where:{email:{in:emails,mode:'insensitive'}},select:{email:true}}):Promise.resolve([]),
+  ]);
+  const departmentsByCode=new Map(departments.map(d=>[d.code.toUpperCase(),d]));
+  const existingStudentNumbers=new Set(existingByNumber.map(s=>s.studentNumber.toLowerCase()));
+  const existingEmails=new Set([
+   ...existingUsers.map(u=>u.email.toLowerCase()),
+   ...existingProfileEmails.flatMap(s=>s.email?[s.email.toLowerCase()]:[]),
+  ]);
+  const preliminary=validateStudentImportRows({headers,raw,departmentsByCode,existingStudentNumbers,existingEmails});
+  const valid=preliminary.flatMap(r=>r.normalized&&r.errors.length===0?[r.normalized]:[]);
+  const normalizedErrors=preliminary.flatMap(r=>r.errors.map(message=>({rowNumber:r.line,message})));
+  const job=await this.prisma.importJob.create({data:{
+   createdById:actor.id,idempotencyKey:key,fileSha256:hash,totalRows:raw.length,validRows:valid.length,errorCount:normalizedErrors.length,
+   payload:valid as unknown as Prisma.InputJsonValue,
+   errors:{create:normalizedErrors.map(e=>({rowNumber:e.rowNumber,message:e.message}))},
+  }});
+  await this.prisma.auditLog.create({data:{actorId:actor.id,action:'STUDENT_IMPORT_PREVIEW',entityType:'ImportJob',entityId:job.id,changes:{totalRows:raw.length,validRows:valid.length,errorCount:normalizedErrors.length,requiredColumns:STUDENT_CSV_REQUIRED}}});
+  return{data:{jobId:job.id,totalRows:raw.length,validRows:valid.length,errorCount:normalizedErrors.length,rows:preliminary.map(r=>({line:r.line,valid:r.errors.length===0,errors:r.errors}))}};
+ }
+
+ @Post('students/:id/commit') async commitStudents(@Param('id') id:string,@Body() dto:CommitDto,@CurrentUser() actor:AuthUser){
+  const job=await this.prisma.importJob.findFirst({where:{id,createdById:actor.id}});
+  if(!job)throw new NotFoundException('Import job not found');
+  if(job.status!=='PREVIEWED')throw new ConflictException('Import job has already been processed');
+  if(job.errorCount&&!dto.acknowledgeInvalidRows)throw new ConflictException('Review and explicitly acknowledge invalid rows before committing valid rows');
+  const rows=job.payload as unknown;
+  if(!isStudentImportPayload(rows))throw new ConflictException('Import job is not a student roster import');
+  if(!rows.length)throw new ConflictException('There are no valid rows to commit');
+  await this.prisma.$transaction(async tx=>{
+   for(const row of rows as StudentImportRow[]){
+    const exists=await tx.student.findFirst({where:{studentNumber:row.studentNumber},select:{id:true}});
+    if(exists)throw new ConflictException(`Row ${row.line}: student_number already exists`);
+    await tx.student.create({data:{
+     studentNumber:row.studentNumber,
+     name:row.name,
+     email:row.email,
+     departmentId:row.departmentId,
+     enrollmentYear:row.enrollmentYear,
+     status:row.status,
+    }});
+   }
+   await tx.importJob.update({where:{id},data:{status:'COMMITTED',committedAt:new Date()}});
+   await tx.auditLog.create({data:{actorId:actor.id,action:'STUDENT_IMPORT_COMMIT',entityType:'ImportJob',entityId:id,changes:{committedRows:rows.length,skippedInvalidRows:job.errorCount}}});
+  });
+  return{data:{jobId:id,committedRows:rows.length,skippedInvalidRows:job.errorCount}};
+ }
+
  @Post('academic-records/preview') async preview(@Body() dto:PreviewDto,@Headers('idempotency-key') key:string|undefined,@CurrentUser() actor:AuthUser){if(Buffer.byteLength(dto.csv,'utf8')>MAX_BYTES)throw new BadRequestException('CSV is larger than 5 MB');if(!key||key.length>120)throw new BadRequestException('Provide an Idempotency-Key header (maximum 120 characters)');const hash=createHash('sha256').update(dto.csv).digest('hex');let table:string[][];try{table=parseCsv(dto.csv);}catch(e){throw new BadRequestException(e instanceof Error?e.message:'Invalid CSV');}if(!table.length)throw new BadRequestException('CSV is empty');const headers=table[0].map(h=>h.trim().toLowerCase());const missing=REQUIRED.filter(h=>!headers.includes(h));if(missing.length)throw new BadRequestException(`Missing required CSV columns: ${missing.join(', ')}`);const raw=table.slice(1);if(!raw.length)throw new BadRequestException('CSV has no data rows');if(raw.length>MAX_ROWS)throw new BadRequestException(`CSV supports at most ${MAX_ROWS} data rows per preview`);const col=(r:string[],name:string)=>r[headers.indexOf(name)]?.trim()??'';
   const studentNumbers=[...new Set(raw.map(r=>col(r,'student_number')).filter(Boolean))];const courseCodes=[...new Set(raw.map(r=>col(r,'course_code').toUpperCase()).filter(Boolean))];const termCodes=[...new Set(raw.map(r=>col(r,'term_code')).filter(Boolean))];const [students,courses,terms]=await Promise.all([this.prisma.student.findMany({where:{studentNumber:{in:studentNumbers},status:'ACTIVE'},select:{id:true,studentNumber:true}}),this.prisma.course.findMany({where:{code:{in:courseCodes}},select:{id:true,code:true}}),this.prisma.academicTerm.findMany({where:{code:{in:termCodes}},select:{id:true,code:true}})]);const studentMap=new Map(students.map(s=>[s.studentNumber.toLowerCase(),s]));const coursesByCode=new Map<string,typeof courses>();for(const c of courses){const list=coursesByCode.get(c.code.toUpperCase())??[];list.push(c);coursesByCode.set(c.code.toUpperCase(),list);}const termMap=new Map(terms.map(t=>[t.code,t]));const courseIds=courses.map(c=>c.id),termIds=terms.map(t=>t.id);const offerings=await this.prisma.courseOffering.findMany({where:{courseId:{in:courseIds},termId:{in:termIds}},select:{id:true,courseId:true,termId:true,section:true}});const offeringMap=new Map(offerings.map(o=>[`${o.courseId}|${o.termId}|${o.section.toLowerCase()}`,o]));
   const preliminary=raw.map((r,index)=>{const errors:string[]=[];const student=studentMap.get(col(r,'student_number').toLowerCase());const matches=coursesByCode.get(col(r,'course_code').toUpperCase())??[];const term=termMap.get(col(r,'term_code'));if(!student)errors.push('Unknown or inactive student number');if(matches.length!==1)errors.push(matches.length?'Course code is ambiguous; include a unique course code':'Unknown course code');if(!term)errors.push('Unknown academic term code');const course=matches.length===1?matches[0]:undefined;const offering=course&&term?offeringMap.get(`${course.id}|${term.id}|${col(r,'section').toLowerCase()}`):undefined;if(course&&term&&!offering)errors.push('Course offering was not found');const kind=col(r,'record_type').toLowerCase();if(!['attendance','score'].includes(kind))errors.push('record_type must be attendance or score');let normalized:ValidatedRow|null=null;if(student&&offering&&kind==='attendance'){const date=col(r,'record_date');const status=col(r,'attendance_status').toUpperCase() as AttendanceStatus;if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(`${date}T00:00:00Z`)))errors.push('record_date must use YYYY-MM-DD');if(!Object.values(AttendanceStatus).includes(status))errors.push('attendance_status must be PRESENT, ABSENT, LATE, or EXCUSED');if(!errors.length)normalized={line:index+2,kind:'attendance',studentId:student.id,offeringId:offering.id,date,status};}else if(student&&offering&&kind==='score'){const assessmentName=col(r,'assessment_name');const assessmentKind=col(r,'assessment_kind');const maxScore=Number(col(r,'max_score')),weightRaw=col(r,'weight'),score=Number(col(r,'score'));if(!assessmentName||!assessmentKind)errors.push('Assessment name and kind are required for score rows');if(!Number.isFinite(maxScore)||maxScore<=0)errors.push('max_score must be greater than zero');if(weightRaw!==''&&(!Number.isFinite(Number(weightRaw))||Number(weightRaw)<0||Number(weightRaw)>100))errors.push('weight must be from 0 to 100');if(!Number.isFinite(score)||score<0||score>maxScore)errors.push('score must be from zero to max_score');if(!errors.length)normalized={line:index+2,kind:'score',studentId:student.id,offeringId:offering.id,assessmentName,assessmentKind,maxScore,weight:weightRaw===''?null:Number(weightRaw),score};}return{line:index+2,errors,normalized};});
@@ -29,5 +98,5 @@ export class ImportsController{
   const valid=preliminary.flatMap(r=>r.normalized&&r.errors.length===0?[r.normalized]:[]);const normalizedErrors=preliminary.flatMap(r=>r.errors.map(message=>({rowNumber:r.line,message})));const job=await this.prisma.importJob.create({data:{createdById:actor.id,idempotencyKey:key,fileSha256:hash,totalRows:raw.length,validRows:valid.length,errorCount:normalizedErrors.length,payload:valid as unknown as Prisma.InputJsonValue,errors:{create:normalizedErrors.map(e=>({rowNumber:e.rowNumber,message:e.message}))}}});await this.prisma.auditLog.create({data:{actorId:actor.id,action:'IMPORT_PREVIEW',entityType:'ImportJob',entityId:job.id,changes:{totalRows:raw.length,validRows:valid.length,errorCount:normalizedErrors.length,fileSha256:hash}}});return{data:{jobId:job.id,totalRows:raw.length,validRows:valid.length,errorCount:normalizedErrors.length,rows:preliminary.map(r=>({line:r.line,valid:r.errors.length===0,errors:r.errors}))}};
  }
  @Get(':id') async getJob(@Param('id') id:string,@CurrentUser() actor:AuthUser){const job=await this.prisma.importJob.findFirst({where:{id,createdById:actor.id},include:{errors:{orderBy:{rowNumber:'asc'}}},omit:{payload:true}});if(!job)throw new NotFoundException('Import job not found');return{data:job};}
- @Post(':id/commit') async commit(@Param('id') id:string,@Body() dto:CommitDto,@CurrentUser() actor:AuthUser){const job=await this.prisma.importJob.findFirst({where:{id,createdById:actor.id}});if(!job)throw new NotFoundException('Import job not found');if(job.status!=='PREVIEWED')throw new ConflictException('Import job has already been processed');if(job.errorCount&&!dto.acknowledgeInvalidRows)throw new ConflictException('Review and explicitly acknowledge invalid rows before committing valid rows');const rows=(job.payload as unknown as ValidatedRow[]|null)??[];if(!rows.length)throw new ConflictException('There are no valid rows to commit');await this.prisma.$transaction(async tx=>{for(const row of rows){const enrolled=await tx.enrollment.findFirst({where:{studentId:row.studentId,offeringId:row.offeringId,status:'ENROLLED'},select:{id:true}});if(!enrolled)throw new ConflictException(`Row ${row.line}: student is no longer enrolled`);if(row.kind==='attendance'){await tx.attendanceRecord.create({data:{studentId:row.studentId,offeringId:row.offeringId,sessionDate:new Date(`${row.date}T00:00:00Z`),status:row.status!}});}else{let assessment=await tx.assessment.findFirst({where:{offeringId:row.offeringId,name:row.assessmentName!}});if(!assessment)assessment=await tx.assessment.create({data:{offeringId:row.offeringId,name:row.assessmentName!,kind:row.assessmentKind!,maxScore:row.maxScore!,weight:row.weight??null}});else if(assessment.kind!==row.assessmentKind||Number(assessment.maxScore)!==row.maxScore||((assessment.weight===null?row.weight===null:Number(assessment.weight)===row.weight)===false))throw new ConflictException(`Row ${row.line}: assessment definition changed after preview`);await tx.assessmentScore.create({data:{assessmentId:assessment.id,studentId:row.studentId,score:row.score!}});}}await tx.importJob.update({where:{id},data:{status:'COMMITTED',committedAt:new Date()}});await tx.auditLog.create({data:{actorId:actor.id,action:'IMPORT_COMMIT',entityType:'ImportJob',entityId:id,changes:{committedRows:rows.length,skippedInvalidRows:job.errorCount}}});});return{data:{jobId:id,committedRows:rows.length,skippedInvalidRows:job.errorCount}};}
+ @Post(':id/commit') async commit(@Param('id') id:string,@Body() dto:CommitDto,@CurrentUser() actor:AuthUser){const job=await this.prisma.importJob.findFirst({where:{id,createdById:actor.id}});if(!job)throw new NotFoundException('Import job not found');if(job.status!=='PREVIEWED')throw new ConflictException('Import job has already been processed');if(job.errorCount&&!dto.acknowledgeInvalidRows)throw new ConflictException('Review and explicitly acknowledge invalid rows before committing valid rows');if(isStudentImportPayload(job.payload))throw new ConflictException('Use POST /imports/students/:id/commit for student roster imports');const rows=(job.payload as unknown as ValidatedRow[]|null)??[];if(!rows.length)throw new ConflictException('There are no valid rows to commit');await this.prisma.$transaction(async tx=>{for(const row of rows){const enrolled=await tx.enrollment.findFirst({where:{studentId:row.studentId,offeringId:row.offeringId,status:'ENROLLED'},select:{id:true}});if(!enrolled)throw new ConflictException(`Row ${row.line}: student is no longer enrolled`);if(row.kind==='attendance'){await tx.attendanceRecord.create({data:{studentId:row.studentId,offeringId:row.offeringId,sessionDate:new Date(`${row.date}T00:00:00Z`),status:row.status!}});}else{let assessment=await tx.assessment.findFirst({where:{offeringId:row.offeringId,name:row.assessmentName!}});if(!assessment)assessment=await tx.assessment.create({data:{offeringId:row.offeringId,name:row.assessmentName!,kind:row.assessmentKind!,maxScore:row.maxScore!,weight:row.weight??null}});else if(assessment.kind!==row.assessmentKind||Number(assessment.maxScore)!==row.maxScore||((assessment.weight===null?row.weight===null:Number(assessment.weight)===row.weight)===false))throw new ConflictException(`Row ${row.line}: assessment definition changed after preview`);await tx.assessmentScore.create({data:{assessmentId:assessment.id,studentId:row.studentId,score:row.score!}});}}await tx.importJob.update({where:{id},data:{status:'COMMITTED',committedAt:new Date()}});await tx.auditLog.create({data:{actorId:actor.id,action:'IMPORT_COMMIT',entityType:'ImportJob',entityId:id,changes:{committedRows:rows.length,skippedInvalidRows:job.errorCount}}});});return{data:{jobId:id,committedRows:rows.length,skippedInvalidRows:job.errorCount}};}
 }

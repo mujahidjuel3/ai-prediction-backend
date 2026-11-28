@@ -11,8 +11,9 @@ import { pageQuery } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.module';
 
 class AccountProvisioningDto {
- @IsIn(['CREATE','LINK']) accountMode!: 'CREATE'|'LINK';
- @ValidateIf(dto=>dto.accountMode==='CREATE') @IsEmail() email?:string;
+ /** PROFILE = academic profile only (no login account). CREATE = local-dev password account. LINK = existing user. */
+ @IsIn(['CREATE','LINK','PROFILE']) accountMode!: 'CREATE'|'LINK'|'PROFILE';
+ @ValidateIf(dto=>dto.accountMode==='CREATE' || (dto.accountMode==='PROFILE' && Boolean(dto.email))) @IsEmail() email?:string;
  @ValidateIf(dto=>dto.accountMode==='CREATE') @IsString() @MinLength(14) @MaxLength(128) initialPassword?:string;
  @ValidateIf(dto=>dto.accountMode==='LINK') @IsUUID() userId?:string;
 }
@@ -39,11 +40,17 @@ export class InstitutionController {
  constructor(private prisma:PrismaService){}
  @Roles(Role.ADMIN) @Get('users/linkable') async linkableUsers(@Query('role') role?:string){if(role!=='STUDENT'&&role!=='TEACHER')throw new BadRequestException('role must be STUDENT or TEACHER');return{data:await this.prisma.user.findMany({where:{role,status:'ACTIVE',student:{is:null},teacher:{is:null}},select:{id:true,email:true,name:true,role:true,status:true},orderBy:{name:'asc'}})};}
  @Roles(Role.ADMIN) @Post('students') async createStudent(@Body() dto:StudentDto){
-  if(dto.accountMode==='CREATE'&&process.env.NODE_ENV==='production')throw new ForbiddenException('Password-based account setup is disabled in production; link an existing active Student account instead');
-  const email=dto.accountMode==='CREATE'?dto.email?.trim().toLowerCase():undefined;
-  const passwordHash=dto.accountMode==='CREATE'?await this.initialPasswordHash(dto.initialPassword):undefined;
+  if(dto.accountMode==='CREATE'&&process.env.NODE_ENV==='production')throw new ForbiddenException('Password-based account setup is disabled in production; create a profile without an account, or link an existing active Student account');
   if(dto.accountMode==='CREATE'&&dto.userId)throw new BadRequestException('Do not provide userId when creating a new account');
   if(dto.accountMode==='LINK'&&(dto.initialPassword!==undefined||dto.email!==undefined))throw new BadRequestException('When linking an account, provide only userId; the profile email comes from that account');
+  if(dto.accountMode==='PROFILE'&&dto.userId)throw new BadRequestException('Do not provide userId when creating a profile without an account');
+  if(dto.accountMode==='PROFILE'&&dto.initialPassword!==undefined)throw new BadRequestException('Do not provide a password when creating a profile without an account');
+  if(dto.accountMode==='PROFILE'){
+   const profileEmail=dto.email?.trim().toLowerCase()||null;
+   try{return{data:await this.prisma.student.create({data:{studentNumber:dto.studentNumber,name:dto.name,email:profileEmail,departmentId:dto.departmentId,enrollmentYear:dto.enrollmentYear},include:{user:{select:{id:true,email:true,name:true,role:true,status:true}}}})};}catch(error){return this.mapUniqueConflict(error);}
+  }
+  const email=dto.accountMode==='CREATE'?dto.email?.trim().toLowerCase():undefined;
+  const passwordHash=dto.accountMode==='CREATE'?await this.initialPasswordHash(dto.initialPassword):undefined;
   try{return{data:await this.prisma.$transaction(async tx=>{const user=await this.resolveProfileAccount(tx,dto.accountMode,Role.STUDENT,dto.name,email,dto.userId,passwordHash);return tx.student.create({data:{studentNumber:dto.studentNumber,name:dto.name,email:user.email,departmentId:dto.departmentId,enrollmentYear:dto.enrollmentYear,userId:user.id},include:{user:{select:{id:true,email:true,name:true,role:true,status:true}}}});})};}catch(error){return this.mapUniqueConflict(error);}
  }
  @Roles(Role.ADMIN) @Patch('students/:id') async patchStudent(@Param('id') id:string,@Body() dto:StudentUpdateDto){
@@ -52,6 +59,7 @@ export class InstitutionController {
  @Roles(Role.ADMIN) @Delete('students/:id') async deactivateStudent(@Param('id') id:string){return{data:await this.prisma.$transaction(async tx=>{const profile=await tx.student.update({where:{id},data:{status:'INACTIVE'}});if(profile.userId)await tx.user.update({where:{id:profile.userId},data:{status:'INACTIVE'}});return profile;})};}
  @Roles(Role.ADMIN) @Post('students/:id/reactivate') async reactivateStudent(@Param('id') id:string){return{data:await this.prisma.$transaction(async tx=>{const current=await tx.student.findUnique({where:{id},select:{id:true,status:true,userId:true}});if(!current)throw new NotFoundException('Student profile not found');if(current.status==='ACTIVE')throw new ConflictException('Student profile is already active');const profile=await tx.student.update({where:{id},data:{status:'ACTIVE'}});if(current.userId)await tx.user.update({where:{id:current.userId},data:{status:'ACTIVE'}});return profile;})};}
  @Roles(Role.ADMIN) @Post('students/:id/link-account') async linkStudentAccount(@Param('id') id:string,@Body() dto:AccountProvisioningDto){
+  if(dto.accountMode==='PROFILE')throw new BadRequestException('PROFILE mode cannot be used when linking an account; use CREATE or LINK');
   if(dto.accountMode==='CREATE'&&process.env.NODE_ENV==='production')throw new ForbiddenException('Password-based account setup is disabled in production; link an existing active Student account instead');
   if(dto.accountMode==='CREATE'&&dto.userId)throw new BadRequestException('Do not provide userId when creating a new account');
   if(dto.accountMode==='LINK'&&(dto.initialPassword!==undefined||dto.email!==undefined))throw new BadRequestException('When linking an account, provide only userId; the profile email comes from that account');
@@ -60,11 +68,17 @@ export class InstitutionController {
  }
  @Roles(Role.ADMIN) @Get('teachers') async teachers(@Query('page') p?:string,@Query('pageSize') s?:string,@Query('q') q?:string){const pg=pageQuery(p,s);const where=q?{OR:[{name:{contains:q,mode:'insensitive' as const}},{employeeNumber:{contains:q,mode:'insensitive' as const}}]}:{};const [data,total]=await this.prisma.$transaction([this.prisma.teacher.findMany({where,include:{department:true,user:{select:{id:true,email:true,status:true}}},orderBy:{name:'asc'},skip:pg.skip,take:pg.pageSize}),this.prisma.teacher.count({where})]);return{data,meta:{page:pg.page,pageSize:pg.pageSize,total,totalPages:Math.ceil(total/pg.pageSize)}};}
  @Roles(Role.ADMIN) @Post('teachers') async createTeacher(@Body() dto:TeacherDto){
-  if(dto.accountMode==='CREATE'&&process.env.NODE_ENV==='production')throw new ForbiddenException('Password-based account setup is disabled in production; link an existing active Teacher account instead');
-  const email=dto.accountMode==='CREATE'?dto.email?.trim().toLowerCase():undefined;
-  const passwordHash=dto.accountMode==='CREATE'?await this.initialPasswordHash(dto.initialPassword):undefined;
+  if(dto.accountMode==='CREATE'&&process.env.NODE_ENV==='production')throw new ForbiddenException('Password-based account setup is disabled in production; create a profile without an account, or link an existing active Teacher account');
   if(dto.accountMode==='CREATE'&&dto.userId)throw new BadRequestException('Do not provide userId when creating a new account');
   if(dto.accountMode==='LINK'&&(dto.initialPassword!==undefined||dto.email!==undefined))throw new BadRequestException('When linking an account, provide only userId; the profile email comes from that account');
+  if(dto.accountMode==='PROFILE'&&dto.userId)throw new BadRequestException('Do not provide userId when creating a profile without an account');
+  if(dto.accountMode==='PROFILE'&&dto.initialPassword!==undefined)throw new BadRequestException('Do not provide a password when creating a profile without an account');
+  if(dto.accountMode==='PROFILE'){
+   const profileEmail=dto.email?.trim().toLowerCase()||null;
+   try{return{data:await this.prisma.teacher.create({data:{employeeNumber:dto.employeeNumber,name:dto.name,email:profileEmail,departmentId:dto.departmentId},include:{user:{select:{id:true,email:true,name:true,role:true,status:true}}}})};}catch(error){return this.mapUniqueConflict(error);}
+  }
+  const email=dto.accountMode==='CREATE'?dto.email?.trim().toLowerCase():undefined;
+  const passwordHash=dto.accountMode==='CREATE'?await this.initialPasswordHash(dto.initialPassword):undefined;
   try{return{data:await this.prisma.$transaction(async tx=>{const user=await this.resolveProfileAccount(tx,dto.accountMode,Role.TEACHER,dto.name,email,dto.userId,passwordHash);return tx.teacher.create({data:{employeeNumber:dto.employeeNumber,name:dto.name,email:user.email,departmentId:dto.departmentId,userId:user.id},include:{user:{select:{id:true,email:true,name:true,role:true,status:true}}}});})};}catch(error){return this.mapUniqueConflict(error);}
  }
  @Roles(Role.ADMIN) @Patch('teachers/:id') async patchTeacher(@Param('id') id:string,@Body() dto:TeacherUpdateDto){
@@ -72,6 +86,7 @@ export class InstitutionController {
  }
  @Roles(Role.ADMIN) @Delete('teachers/:id') async deactivateTeacher(@Param('id') id:string){const assigned=await this.prisma.courseOffering.count({where:{teacherId:id}});if(assigned)throw new ConflictException('Reassign course offerings before deactivating this teacher');return{data:await this.prisma.$transaction(async tx=>{const profile=await tx.teacher.update({where:{id},data:{status:'INACTIVE'}});if(profile.userId)await tx.user.update({where:{id:profile.userId},data:{status:'INACTIVE'}});return profile;})};}
  @Roles(Role.ADMIN) @Post('teachers/:id/link-account') async linkTeacherAccount(@Param('id') id:string,@Body() dto:AccountProvisioningDto){
+  if(dto.accountMode==='PROFILE')throw new BadRequestException('PROFILE mode cannot be used when linking an account; use CREATE or LINK');
   if(dto.accountMode==='CREATE'&&process.env.NODE_ENV==='production')throw new ForbiddenException('Password-based account setup is disabled in production; link an existing active Teacher account instead');
   if(dto.accountMode==='CREATE'&&dto.userId)throw new BadRequestException('Do not provide userId when creating a new account');
   if(dto.accountMode==='LINK'&&(dto.initialPassword!==undefined||dto.email!==undefined))throw new BadRequestException('When linking an account, provide only userId; the profile email comes from that account');
@@ -117,7 +132,8 @@ export class InstitutionController {
  @Roles(Role.ADMIN) @Patch('users/:id') async updateUser(@Param('id') id:string,@Body() dto:UserUpdateDto,@CurrentUser() actor:AuthUser){if(actor.id===id&&dto.role&&dto.role!=='ADMIN')throw new ConflictException('You cannot remove your own administrator role');if(actor.id===id&&dto.status==='INACTIVE')throw new ConflictException('You cannot deactivate your own account');return{data:await this.prisma.$transaction(async tx=>{const current=await tx.user.findUnique({where:{id},select:{id:true,role:true,student:{select:{id:true}},teacher:{select:{id:true}}}});if(!current)throw new NotFoundException('User not found');if(dto.role&&current.student&&dto.role!==Role.STUDENT)throw new ConflictException('A linked Student account must keep the Student role');if(dto.role&&current.teacher&&dto.role!==Role.TEACHER)throw new ConflictException('A linked Teacher account must keep the Teacher role');const saved=await tx.user.update({where:{id},data:dto,select:{id:true,email:true,name:true,role:true,status:true,createdAt:true}});if(dto.status!==undefined){if(current.student)await tx.student.update({where:{id:current.student.id},data:{status:dto.status}});if(current.teacher)await tx.teacher.update({where:{id:current.teacher.id},data:{status:dto.status}});}return saved;})};}
  @Roles(Role.ADMIN) @Delete('users/:id') async deactivateUser(@Param('id') id:string,@CurrentUser() actor:AuthUser){if(actor.id===id)throw new ConflictException('You cannot deactivate your own account');return{data:await this.prisma.$transaction(async tx=>{const current=await tx.user.findUnique({where:{id},select:{id:true,student:{select:{id:true}},teacher:{select:{id:true}}}});if(!current)throw new NotFoundException('User not found');const saved=await tx.user.update({where:{id},data:{status:'INACTIVE'},select:{id:true,email:true,status:true}});if(current.student)await tx.student.update({where:{id:current.student.id},data:{status:'INACTIVE'}});if(current.teacher)await tx.teacher.update({where:{id:current.teacher.id},data:{status:'INACTIVE'}});return saved;})};}
  private async initialPasswordHash(password?:string){if(!password||password.length<14||password.length>128)throw new BadRequestException('A temporary setup password of 14 to 128 characters is required');return argon2.hash(password,{type:argon2.argon2id});}
- private async resolveProfileAccount(tx:Prisma.TransactionClient,mode:'CREATE'|'LINK',role:Role,name:string,email?:string,userId?:string,passwordHash?:string){
+ private async resolveProfileAccount(tx:Prisma.TransactionClient,mode:'CREATE'|'LINK'|'PROFILE',role:Role,name:string,email?:string,userId?:string,passwordHash?:string){
+  if(mode==='PROFILE')throw new BadRequestException('PROFILE mode does not create a login account');
   if(mode==='CREATE'){if(!email||!passwordHash)throw new BadRequestException('Email and temporary setup password are required to create an account');return tx.user.create({data:{email,name,role,passwordHash},select:{id:true,email:true,name:true,role:true,status:true}});}
   if(!userId)throw new BadRequestException('userId is required when linking an existing account');
   const user=await tx.user.findUnique({where:{id:userId},select:{id:true,email:true,name:true,role:true,status:true,student:{select:{id:true}},teacher:{select:{id:true}}}});

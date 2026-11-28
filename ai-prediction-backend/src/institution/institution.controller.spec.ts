@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { InstitutionController } from './institution.controller';
 
@@ -39,6 +39,33 @@ describe('InstitutionController Student/Teacher account linking', () => {
     expect(tx.student.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: account.id, email: account.email }) }));
     expect(JSON.stringify(result)).not.toContain('passwordHash');
     expect(JSON.stringify(result)).not.toContain(studentDto.initialPassword);
+  });
+
+  it('rejects PROFILE mode on student account link', async () => {
+    const { controller, tx } = setup();
+    await expect(controller.linkStudentAccount('student-1', { accountMode: 'PROFILE', email: 'x@example.test' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.student.update).not.toHaveBeenCalled();
+  });
+
+  it('creates a profile-only Student without a login account', async () => {
+    const prisma = {
+      student: { create: jest.fn().mockResolvedValue({ id: 'student-profile', userId: null, email: 'profile@example.test', user: null }) },
+      $transaction: jest.fn(),
+    };
+    const controller = new InstitutionController(prisma as never);
+    const result = await controller.createStudent({
+      accountMode: 'PROFILE',
+      email: 'profile@example.test',
+      studentNumber: 'S-PROFILE-1',
+      name: 'Profile Only',
+      departmentId: 'department-1',
+      enrollmentYear: 2024,
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.student.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ studentNumber: 'S-PROFILE-1', email: 'profile@example.test', departmentId: 'department-1', enrollmentYear: 2024 }),
+    }));
+    expect((result.data as { userId: string | null }).userId).toBeNull();
   });
 
   it('returns a conflict for duplicate email or institutional identifier and does not create the profile', async () => {
