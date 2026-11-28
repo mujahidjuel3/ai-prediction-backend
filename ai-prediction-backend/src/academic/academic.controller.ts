@@ -6,6 +6,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
+import { AcademicSummaryService } from './academic-summary.service';
 import { pageQuery } from '../common/pagination';
 import { GradingService } from './grading.service';
 
@@ -33,11 +34,20 @@ export class RecalculateGradesDto {
 
 @ApiTags('academic') @UseGuards(JwtAuthGuard) @Controller()
 export class AcademicController {
-  constructor(private prisma: PrismaService, private grading: GradingService) {}
+  constructor(
+    private prisma: PrismaService,
+    private grading: GradingService,
+    private summaryService: AcademicSummaryService,
+  ) {}
 
   @Roles(Role.ADMIN) @Post('grades/recalculate')
   async recalculateGrades(@Body() dto: RecalculateGradesDto) {
     return { data: await this.grading.recalculateForTerm(dto.termId, dto.studentId) };
+  }
+
+  @Roles(Role.ADMIN) @Post('summaries/recalculate')
+  async recalculateSummaries(@Query('termId') termId?: string) {
+    return { data: await this.summaryService.recalculate(termId) };
   }
 
   @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT) @Get('terms')

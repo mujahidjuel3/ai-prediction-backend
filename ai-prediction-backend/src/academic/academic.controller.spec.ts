@@ -8,6 +8,10 @@ import { AcademicController, RecalculateGradesDto } from './academic.controller'
 const TERM_ID = '11111111-1111-4111-8111-111111111111';
 const STUDENT_ID = '22222222-2222-4222-8222-222222222222';
 
+function createController(prisma: unknown, grading: unknown = { recalculateForTerm: jest.fn() }, summaries: unknown = { recalculate: jest.fn() }) {
+  return new AcademicController(prisma as never, grading as never, summaries as never);
+}
+
 describe('AcademicController course catalog', () => {
   it('returns database rows with the standard paginated envelope', async () => {
     const course = { id: 'course-uuid', code: 'BIO101' };
@@ -18,9 +22,9 @@ describe('AcademicController course catalog', () => {
         count: jest.fn().mockResolvedValue(1),
       },
     };
-    const controller = new AcademicController(prisma as never, { recalculateForTerm: jest.fn() } as never);
+    const catalog = createController(prisma);
 
-    await expect(controller.courseCatalog({ id: 'admin-user', role: 'ADMIN' } as never, '1', '20')).resolves.toEqual({
+    await expect(catalog.courseCatalog({ id: 'admin-user', role: 'ADMIN' } as never, '1', '20')).resolves.toEqual({
       data: [course],
       meta: { page: 1, pageSize: 20, total: 1, totalPages: 1 },
     });
@@ -32,9 +36,9 @@ describe('AcademicController course catalog', () => {
       $transaction: jest.fn(async ([rows]: [Promise<unknown>, Promise<number>]) => Promise.all([rows, Promise.resolve(0)])),
       course: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
     };
-    const controller = new AcademicController(prisma as never, { recalculateForTerm: jest.fn() } as never);
+    const catalog = createController(prisma);
 
-    await controller.courseCatalog({ id: 'teacher-user', role: 'TEACHER' } as never, undefined, undefined, 'department-uuid');
+    await catalog.courseCatalog({ id: 'teacher-user', role: 'TEACHER' } as never, undefined, undefined, 'department-uuid');
 
     expect(prisma.course.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { departmentId: 'department-uuid', offerings: { some: { teacher: { userId: 'teacher-user' } } } },
@@ -57,8 +61,8 @@ describe('AcademicController course catalog', () => {
         update: jest.fn().mockResolvedValue({ ...current, label: 'Spring Term 2026', active: true }),
       },
     };
-    const controller = new AcademicController(prisma as never, { recalculateForTerm: jest.fn() } as never);
-    await expect(controller.updateTerm('term-1', { label: 'Spring Term 2026', active: true })).resolves.toEqual({
+    const catalog = createController(prisma);
+    await expect(catalog.updateTerm('term-1', { label: 'Spring Term 2026', active: true })).resolves.toEqual({
       data: { ...current, label: 'Spring Term 2026', active: true },
     });
     expect(prisma.academicTerm.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -107,12 +111,33 @@ describe('AcademicController grade recalculation', () => {
       students: [],
     };
     const grading = { recalculateForTerm: jest.fn().mockResolvedValue(summary) };
-    const controller = new AcademicController({} as never, grading as never);
+    const academic = createController({}, grading);
 
-    await expect(controller.recalculateGrades({ termId: TERM_ID, studentId: STUDENT_ID })).resolves.toEqual({ data: summary });
-    await controller.recalculateGrades({ termId: TERM_ID });
+    await expect(academic.recalculateGrades({ termId: TERM_ID, studentId: STUDENT_ID })).resolves.toEqual({ data: summary });
+    await academic.recalculateGrades({ termId: TERM_ID });
 
     expect(grading.recalculateForTerm).toHaveBeenNthCalledWith(1, TERM_ID, STUDENT_ID);
     expect(grading.recalculateForTerm).toHaveBeenNthCalledWith(2, TERM_ID, undefined);
+  });
+});
+
+describe('AcademicController summary recalculation', () => {
+  it('keeps the admin attendance summary endpoint', async () => {
+    const guard = new RolesGuard(new Reflector());
+    const context = (role: string) => ({
+      getHandler: () => AcademicController.prototype.recalculateSummaries,
+      getClass: () => AcademicController,
+      switchToHttp: () => ({ getRequest: () => ({ user: { role } }) }),
+    });
+    expect(new Reflector().get(ROLES_KEY, AcademicController.prototype.recalculateSummaries)).toEqual([Role.ADMIN]);
+    expect(guard.canActivate(context('ADMIN') as never)).toBe(true);
+    expect(() => guard.canActivate(context('TEACHER') as never)).toThrow(ForbiddenException);
+
+    const summaries = { recalculate: jest.fn().mockResolvedValue({ processed: 2, calculationVersion: 'DEMO-IST-CSE-v2' }) };
+    const academic = createController({}, undefined, summaries);
+    await expect(academic.recalculateSummaries(TERM_ID)).resolves.toEqual({
+      data: { processed: 2, calculationVersion: 'DEMO-IST-CSE-v2' },
+    });
+    expect(summaries.recalculate).toHaveBeenCalledWith(TERM_ID);
   });
 });
