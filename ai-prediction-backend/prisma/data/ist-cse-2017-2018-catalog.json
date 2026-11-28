@@ -1,0 +1,573 @@
+{
+  "source": "IST/NU CSE Syllabus Effective from the Session 2017-2018",
+  "sourceUrl": "https://ist.edu.bd/wp-content/uploads/2021/11/CSE-Syllabus-Effective-from-the-Session-2017-2018.pdf",
+  "courses": [
+    {
+      "semester": 1,
+      "code": "510201",
+      "title": "Structured Programming Language",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 1,
+      "code": "510202",
+      "title": "Structured Programming Language Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 1,
+      "code": "510203",
+      "title": "Electrical and Electronic Circuit",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 1,
+      "code": "510204",
+      "title": "Electrical and Electronic Circuit Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 1,
+      "code": "510205",
+      "title": "Calculus",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 1,
+      "code": "510207",
+      "title": "Physics",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 1,
+      "code": "510209",
+      "title": "English",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 2,
+      "code": "510221",
+      "title": "Digital Systems Design",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 2,
+      "code": "510222",
+      "title": "Digital Systems Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 2,
+      "code": "510223",
+      "title": "Discrete Mathematics",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 2,
+      "code": "510225",
+      "title": "Linear Algebra",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 2,
+      "code": "510227",
+      "title": "Statistics and Probability",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 2,
+      "code": "510229",
+      "title": "History of the Emergence of Independent Bangladesh",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 3,
+      "code": "520201",
+      "title": "Data Structure",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 3,
+      "code": "520202",
+      "title": "Data Structure Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 3,
+      "code": "520203",
+      "title": "Object Oriented Programming",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 3,
+      "code": "520204",
+      "title": "Object Oriented Programming Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 3,
+      "code": "520205",
+      "title": "Computer Architecture",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 3,
+      "code": "520207",
+      "title": "Ordinary Differential Equation",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 3,
+      "code": "520209",
+      "title": "Fundamental of Business Studies",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 4,
+      "code": "520221",
+      "title": "Database Management System",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 4,
+      "code": "520222",
+      "title": "Database Management System Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 4,
+      "code": "520223",
+      "title": "Microprocessor and Assembly Language",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 4,
+      "code": "520224",
+      "title": "Microprocessor and Assembly Language Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 4,
+      "code": "520225",
+      "title": "Design and Analysis of Algorithms",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 4,
+      "code": "520226",
+      "title": "Design and Analysis of Algorithms Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 4,
+      "code": "520227",
+      "title": "Numerical Analysis",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 5,
+      "code": "530201",
+      "title": "Peripheral and Interfacing",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 5,
+      "code": "530202",
+      "title": "Peripheral and Interfacing Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 5,
+      "code": "530203",
+      "title": "Data and Telecommunications",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 5,
+      "code": "530204",
+      "title": "Data and Telecommunications Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 5,
+      "code": "530205",
+      "title": "Operating System",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 5,
+      "code": "530206",
+      "title": "Operating System Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 5,
+      "code": "530207",
+      "title": "Economics",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 6,
+      "code": "530219",
+      "title": "Software Engineering",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 6,
+      "code": "530220",
+      "title": "Software Engineering Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 6,
+      "code": "530221",
+      "title": "Computer Networking",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 6,
+      "code": "530222",
+      "title": "Computer Networking Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 6,
+      "code": "530223",
+      "title": "Embedded System Programming",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 6,
+      "code": "530224",
+      "title": "Embedded System Programming Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 6,
+      "code": "530225",
+      "title": "Theory of Computation",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540201",
+      "title": "Artificial Intelligence",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540202",
+      "title": "Artificial Intelligence Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540203",
+      "title": "Compiler Design and Construction",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540204",
+      "title": "Compiler Design Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540205",
+      "title": "Computer Graphics",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540206",
+      "title": "Computer Graphics Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540207",
+      "title": "E-Commerce and Web Engineering",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 7,
+      "code": "540208",
+      "title": "E-Commerce and Web Engineering Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 8,
+      "code": "540219",
+      "title": "Network and Information Security",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 8,
+      "code": "540220",
+      "title": "Network and Information Security Lab",
+      "credits": 1.5,
+      "track": "core"
+    },
+    {
+      "semester": 8,
+      "code": "540221",
+      "title": "Information System Management",
+      "credits": 3.0,
+      "track": "core"
+    },
+    {
+      "semester": 8,
+      "code": "540222",
+      "title": "Project/Industry Attachment",
+      "credits": 6.0,
+      "track": "core"
+    },
+    {
+      "semester": 8,
+      "code": "540223",
+      "title": "Simulation and Modeling",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540224",
+      "title": "Simulation and Modeling Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540225",
+      "title": "Parallel and Distributed Systems",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540226",
+      "title": "Parallel and Distributed Systems Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540227",
+      "title": "Digital Signal Processing",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540228",
+      "title": "Digital Signal Processing Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540229",
+      "title": "Digital Image Processing",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540230",
+      "title": "Digital Image Processing Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540231",
+      "title": "Multimedia",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540232",
+      "title": "Multimedia Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540233",
+      "title": "Pattern Recognition",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540234",
+      "title": "Pattern Recognition Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540235",
+      "title": "Design and Analysis of VLSI Systems",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540236",
+      "title": "Design and Testing of VLSI Systems Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540237",
+      "title": "Micro-controller and Embedded System",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540238",
+      "title": "Micro-controller and Embedded System Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540239",
+      "title": "Cyber Law and Computer Forensic",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540240",
+      "title": "Cyber Law and Computer Forensics Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540241",
+      "title": "Natural Language Processing",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540242",
+      "title": "Natural Language Processing Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540243",
+      "title": "System Analysis and Design",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540244",
+      "title": "System Analysis and Design Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540245",
+      "title": "Optical Fiber Communication",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540246",
+      "title": "Optical Fiber Communication Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540247",
+      "title": "Human Computer Interaction",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540248",
+      "title": "Human Computer Interaction Lab",
+      "credits": 1.5,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540249",
+      "title": "Graph Theory",
+      "credits": 3.0,
+      "track": "optional"
+    },
+    {
+      "semester": 8,
+      "code": "540250",
+      "title": "Graph Theory Lab",
+      "credits": 1.5,
+      "track": "optional"
+    }
+  ]
+}

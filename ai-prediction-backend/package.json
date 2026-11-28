@@ -18,6 +18,7 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "test:neon-isolated": "node scripts/test-neon-isolated.mjs",
     "bootstrap:admin": "tsx scripts/bootstrap-admin.ts",
+    "seed:ist-cse-demo": "tsx scripts/seed-ist-cse-demo.ts",
     "openapi": "node scripts/write-openapi.js"
   },
   "dependencies": {

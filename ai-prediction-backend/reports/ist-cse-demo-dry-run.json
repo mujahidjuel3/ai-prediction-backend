@@ -1,0 +1,368 @@
+{
+  "mode": "dry-run",
+  "writeExecuted": false,
+  "productionDryRunStatus": "BLOCKED_NO_PRODUCTION_URL",
+  "database": {
+    "hostRedacted": "*********",
+    "database": "academic_sentinel",
+    "isLocal": true,
+    "isNeon": false,
+    "environmentGuess": "local",
+    "seedTarget": "(unset)",
+    "note": "Connected URL is local — not production Neon. Azure CLI is not logged in and no SEED_DATABASE_URL was provided. Counts below reflect the reachable database only; re-run with SEED_DATABASE_URL=…neon.tech… for a production read-only dry-run."
+  },
+  "existing": {
+    "departments": [
+      {
+        "code": "9846",
+        "name": "CSE"
+      },
+      {
+        "code": "CSE",
+        "name": "Computer Science and Engineering"
+      }
+    ],
+    "cseDepartmentPresent": true,
+    "istCseStudents": [
+      {
+        "studentNumber": "IST-CSE-2022-009",
+        "name": "Imran Hossain",
+        "enrollmentYear": 2022,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2022-010",
+        "name": "Lamia Akter",
+        "enrollmentYear": 2022,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2023-006",
+        "name": "Tanvir Ahmed",
+        "enrollmentYear": 2023,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2023-007",
+        "name": "Sabbir Khan",
+        "enrollmentYear": 2023,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2023-008",
+        "name": "Priya Sultana",
+        "enrollmentYear": 2023,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2024-001",
+        "name": "Ayesha Rahman",
+        "enrollmentYear": 2024,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2024-002",
+        "name": "Fahim Hasan",
+        "enrollmentYear": 2024,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2024-003",
+        "name": "Nusrat Jahan",
+        "enrollmentYear": 2024,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2024-004",
+        "name": "Rafiul Islam",
+        "enrollmentYear": 2024,
+        "department": "CSE",
+        "status": "ACTIVE"
+      },
+      {
+        "studentNumber": "IST-CSE-2024-005",
+        "name": "Maliha Chowdhury",
+        "enrollmentYear": 2024,
+        "department": "CSE",
+        "status": "ACTIVE"
+      }
+    ],
+    "istCseStudentCount": 10,
+    "cseCourseCount": 0,
+    "demoTermsExisting": [],
+    "istCseEnrollmentCount": 0,
+    "istCseAttendanceCount": 0,
+    "demoAssessmentCount": 0,
+    "demoScoreCount": 0,
+    "demoSummaryCount": 0,
+    "istCsePredictionCount": 0,
+    "istCseAlertCount": 0
+  },
+  "officialCatalog": {
+    "source": "IST/NU CSE Syllabus Effective from the Session 2017-2018",
+    "totalCourses": 81,
+    "core": 53,
+    "optional": 28,
+    "bySemester": {
+      "Sem 1": {
+        "core": 7,
+        "optional": 0,
+        "creditsCore": 18
+      },
+      "Sem 2": {
+        "core": 6,
+        "optional": 0,
+        "creditsCore": 16.5
+      },
+      "Sem 3": {
+        "core": 7,
+        "optional": 0,
+        "creditsCore": 18
+      },
+      "Sem 4": {
+        "core": 7,
+        "optional": 0,
+        "creditsCore": 16.5
+      },
+      "Sem 5": {
+        "core": 7,
+        "optional": 0,
+        "creditsCore": 16.5
+      },
+      "Sem 6": {
+        "core": 7,
+        "optional": 0,
+        "creditsCore": 16.5
+      },
+      "Sem 7": {
+        "core": 8,
+        "optional": 0,
+        "creditsCore": 18
+      },
+      "Sem 8": {
+        "core": 4,
+        "optional": 28,
+        "creditsCore": 13.5
+      }
+    },
+    "optionalPairs": 14
+  },
+  "termPlan": [
+    {
+      "code": "DEMO-IST-2022-23-S1",
+      "label": "DEMO · IST CSE 2022-23 Semester 1",
+      "academicYear": "2022-2023",
+      "startsAt": "2022-07-01",
+      "endsAt": "2022-12-31",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2022-23-S2",
+      "label": "DEMO · IST CSE 2022-23 Semester 2",
+      "academicYear": "2022-2023",
+      "startsAt": "2023-01-01",
+      "endsAt": "2023-06-30",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2023-24-S1",
+      "label": "DEMO · IST CSE 2023-24 Semester 1",
+      "academicYear": "2023-2024",
+      "startsAt": "2023-07-01",
+      "endsAt": "2023-12-31",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2023-24-S2",
+      "label": "DEMO · IST CSE 2023-24 Semester 2",
+      "academicYear": "2023-2024",
+      "startsAt": "2024-01-01",
+      "endsAt": "2024-06-30",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2024-25-S1",
+      "label": "DEMO · IST CSE 2024-25 Semester 1",
+      "academicYear": "2024-2025",
+      "startsAt": "2024-07-01",
+      "endsAt": "2024-12-31",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2024-25-S2",
+      "label": "DEMO · IST CSE 2024-25 Semester 2",
+      "academicYear": "2024-2025",
+      "startsAt": "2025-01-01",
+      "endsAt": "2025-06-30",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2025-26-S1",
+      "label": "DEMO · IST CSE 2025-26 Semester 1",
+      "academicYear": "2025-2026",
+      "startsAt": "2025-07-01",
+      "endsAt": "2025-12-31",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2025-26-S2",
+      "label": "DEMO · IST CSE 2025-26 Semester 2",
+      "academicYear": "2025-2026",
+      "startsAt": "2026-01-01",
+      "endsAt": "2026-06-30",
+      "active": false
+    },
+    {
+      "code": "DEMO-IST-2026-27-S1",
+      "label": "DEMO · IST CSE 2026-27 Semester 1 (current)",
+      "academicYear": "2026-2027",
+      "startsAt": "2026-07-01",
+      "endsAt": "2026-12-31",
+      "active": true
+    }
+  ],
+  "semesterMappingNotes": [
+    "Assumes July-start sessions: Sem1=Jul–Dec of enrollmentYear, Sem2=Jan–Jun following, etc.",
+    "As of 2026-11-28: 2024 cohort current Sem5; 2023 cohort current Sem7; 2022 cohort finished Sem8 in Jan–Jun 2026 (COMPLETED).",
+    "Active DEMO term: DEMO-IST-2026-27-S1."
+  ],
+  "planned": {
+    "coursesCreate": 81,
+    "coursesReuse": 0,
+    "termsCreate": 9,
+    "termsReuse": 0,
+    "offeringsCreate": 140,
+    "offeringsReuse": 0,
+    "enrollmentsPlanned": 427,
+    "attendanceCreate": 472,
+    "assessmentsCreate": 30,
+    "scoresCreate": 118,
+    "summariesCreate": 54,
+    "predictionsCreate": 0,
+    "riskAlertsCreate": 0,
+    "teachersCreate": 0,
+    "usersCreate": 0
+  },
+  "expectedInsertCountsByTable": {
+    "Course": 81,
+    "AcademicTerm": 9,
+    "CourseOffering": 140,
+    "Enrollment": 427,
+    "AttendanceRecord": 472,
+    "Assessment": 30,
+    "AssessmentScore": 118,
+    "AcademicSummary": 54,
+    "Teacher": 0,
+    "User": 0,
+    "Prediction": 0,
+    "RiskAlert": 0
+  },
+  "cohorts": [
+    {
+      "enrollmentYear": 2022,
+      "students": [
+        {
+          "studentNumber": "IST-CSE-2022-009",
+          "maxCompleted": 8,
+          "currentSem": null
+        },
+        {
+          "studentNumber": "IST-CSE-2022-010",
+          "maxCompleted": 8,
+          "currentSem": null
+        }
+      ],
+      "enrollmentRows": 110,
+      "enrolledNow": 0,
+      "completed": 110
+    },
+    {
+      "enrollmentYear": 2023,
+      "students": [
+        {
+          "studentNumber": "IST-CSE-2023-006",
+          "maxCompleted": 6,
+          "currentSem": 7
+        },
+        {
+          "studentNumber": "IST-CSE-2023-007",
+          "maxCompleted": 6,
+          "currentSem": 7
+        },
+        {
+          "studentNumber": "IST-CSE-2023-008",
+          "maxCompleted": 6,
+          "currentSem": 7
+        }
+      ],
+      "enrollmentRows": 147,
+      "enrolledNow": 24,
+      "completed": 123
+    },
+    {
+      "enrollmentYear": 2024,
+      "students": [
+        {
+          "studentNumber": "IST-CSE-2024-001",
+          "maxCompleted": 4,
+          "currentSem": 5
+        },
+        {
+          "studentNumber": "IST-CSE-2024-002",
+          "maxCompleted": 4,
+          "currentSem": 5
+        },
+        {
+          "studentNumber": "IST-CSE-2024-003",
+          "maxCompleted": 4,
+          "currentSem": 5
+        },
+        {
+          "studentNumber": "IST-CSE-2024-004",
+          "maxCompleted": 4,
+          "currentSem": 5
+        },
+        {
+          "studentNumber": "IST-CSE-2024-005",
+          "maxCompleted": 4,
+          "currentSem": 5
+        }
+      ],
+      "enrollmentRows": 170,
+      "enrolledNow": 35,
+      "completed": 135
+    }
+  ],
+  "idempotentKeys": {
+    "Course": "@@unique([departmentId, code])",
+    "AcademicTerm": "code @unique",
+    "CourseOffering": "@@unique([courseId, termId, section])",
+    "Enrollment": "@@unique([studentId, offeringId])",
+    "AttendanceRecord": "@@unique([studentId, offeringId, sessionDate])",
+    "Assessment": "@@unique([offeringId, name])",
+    "AssessmentScore": "@@unique([assessmentId, studentId])",
+    "AcademicSummary": "@@unique([studentId, termId, calculationVersion])"
+  },
+  "warnings": [
+    "Multiple CSE-like departments present: 9846:CSE; CSE:Computer Science and Engineering. Seed will attach courses only to code=CSE."
+  ],
+  "ambiguities": [
+    "Sem VIII optional-lab summary OCR/print shows garbled code \"245034\" for Pattern Recognition Lab; detail header is 540234 — catalog uses 540234.",
+    "Optional theory 540239 title uses \"Forensic\" while lab 540240 uses \"Forensics\" in the official PDF; titles kept as printed.",
+    "Detail header for 540208 shows Credits : 3 while Sem VII summary table lists 1.5; catalog uses summary-table value 1.5.",
+    "Teacher profiles are not created (no invented names); CourseOffering.teacherId remains null.",
+    "Local DB may contain department code \"9846\" named \"CSE\" alongside code \"CSE\" (Computer Science and Engineering). Seed attaches courses only to department.code=CSE."
+  ],
+  "conflicts": {
+    "predictionRowsWouldRemainUntouched": 0,
+    "alertRowsWouldRemainUntouched": 0
+  }
+}
